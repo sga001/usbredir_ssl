@@ -1,0 +1,7 @@
+* PACK structs
+* do endian conversion in usbredirparser where necessary
+* check length against max packet size
+* check caps for relevant callbacks in parser
+* adjust iso packets per urb based on interval
+* do some sanity checks in parser, like checking that additional
+  data length == control_header->length, or 0 depending on direction.
