@@ -36,7 +36,7 @@ struct usbredirparser {
     usbredirparser_log log_func;
     usbredirparser_read read_func;
     usbredirparser_write write_func;
-    usbredirparser_report_ep_types report_ep_types_func;
+    usbredirparser_ep_info ep_info_func;
     usbredirparser_reset reset_func;
     usbredirparser_reset_status reset_status_func;
     usbredirparser_set_configuration set_configuration_func;
@@ -100,7 +100,7 @@ struct usbredirparser *usbredirparser_create(
     usbredirparser_log log_func,
     usbredirparser_read read_func,
     usbredirparser_write write_func,
-    usbredirparser_report_ep_types report_ep_types_func,
+    usbredirparser_ep_info ep_info_func,
     usbredirparser_reset reset_func,
     usbredirparser_reset_status reset_status_func,
     usbredirparser_set_configuration set_configuration_func,
@@ -135,7 +135,7 @@ struct usbredirparser *usbredirparser_create(
     parser->log_func = log_func;
     parser->read_func = read_func;
     parser->write_func = write_func;
-    parser->report_ep_types_func = report_ep_types_func;
+    parser->ep_info_func = ep_info_func;
     parser->reset_func = reset_func;
     parser->reset_status_func = reset_status_func;
     parser->set_configuration_func = set_configuration_func;
@@ -234,9 +234,9 @@ static int usbredirparser_get_type_header_len(struct usbredirparser *parser,
     switch (type) {
     case usb_redir_hello:
         return sizeof(struct usb_redir_hello_header);
-    case usb_redir_report_ep_types:
+    case usb_redir_ep_info:
         if (!command_for_host) {
-            return sizeof(struct usb_redir_report_ep_types_header);
+            return sizeof(struct usb_redir_ep_info_header);
         } else {
             return -1;
         }
@@ -362,9 +362,9 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser)
             (struct usb_redir_hello_header *)parser->type_header,
             parser->data, parser->data_len);
         break;
-    case usb_redir_report_ep_types:
-        parser->report_ep_types_func(parser->func_priv,
-            (struct usb_redir_report_ep_types_header *)parser->type_header);
+    case usb_redir_ep_info:
+        parser->ep_info_func(parser->func_priv,
+            (struct usb_redir_ep_info_header *)parser->type_header);
         break;
     case usb_redir_reset:
         parser->reset_func(parser->func_priv, parser->header.id);
@@ -609,11 +609,10 @@ static void usbredirparser_queue(struct usbredirparser *parser, uint32_t type,
     wbuf->next = new_wbuf;
 }
 
-void usbredirparser_send_report_ep_types(struct usbredirparser *parser,
-    struct usb_redir_report_ep_types_header *report_ep_types)
+void usbredirparser_send_ep_info(struct usbredirparser *parser,
+    struct usb_redir_ep_info_header *ep_info)
 {
-    usbredirparser_queue(parser, usb_redir_report_ep_types, 0,
-                         report_ep_types, NULL, 0);
+    usbredirparser_queue(parser, usb_redir_ep_info, 0, ep_info, NULL, 0);
 }
 
 void usbredirparser_send_reset(struct usbredirparser *parser, uint32_t id)

@@ -43,8 +43,8 @@
 #define VERSION "usbredirtestclient 0.0"
 #endif
 
-static void usbredirtestclient_report_ep_types(void *priv,
-    struct usb_redir_report_ep_types_header *report_ep_types);
+static void usbredirtestclient_ep_info(void *priv,
+    struct usb_redir_ep_info_header *ep_info);
 static void usbredirtestclient_reset_status(void *priv, uint32_t id,
     struct usb_redir_reset_status_header *reset_status);
 static void usbredirtestclient_configuration_status(void *priv, uint32_t id,
@@ -260,7 +260,7 @@ int main(int argc, char *argv[])
     parser = usbredirparser_create(usbredirtestclient_log,
                                    usbredirtestclient_read,
                                    usbredirtestclient_write,
-                                   usbredirtestclient_report_ep_types,
+                                   usbredirtestclient_ep_info,
                                    NULL, /* reset */
                                    usbredirtestclient_reset_status,
                                    NULL, /* set config */
@@ -427,15 +427,15 @@ static void usbredirtestclient_cmdline_parse(void)
     }
 }
 
-static void usbredirtestclient_report_ep_types(void *priv,
-    struct usb_redir_report_ep_types_header *report_ep_types)
+static void usbredirtestclient_ep_info(void *priv,
+    struct usb_redir_ep_info_header *ep_info)
 {
     int i;
 
     for (i = 0; i < 32; i++) {
-       if (report_ep_types->ep_types[i] != usb_redir_type_invalid) {
-           printf("endpoint: %02X, type: %d\n", I2EP(i),
-                  (int)report_ep_types->ep_types[i]);
+       if (ep_info->type[i] != usb_redir_type_invalid) {
+           printf("endpoint: %02X, interface: %d, type: %d\n", I2EP(i),
+                  (int)ep_info->interface[i], (int)ep_info->type[i]);
        }
     }
 }

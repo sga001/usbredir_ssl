@@ -43,8 +43,8 @@ typedef int (*usbredirparser_write)(void *priv, uint8_t *data, int count);
    guarenteed to be that of the callback.
 
    Control packets: */
-typedef void (*usbredirparser_report_ep_types)(void *priv,
-    struct usb_redir_report_ep_types_header *report_ep_types);
+typedef void (*usbredirparser_ep_info)(void *priv,
+    struct usb_redir_ep_info_header *ep_info);
 typedef void (*usbredirparser_reset)(void *priv, uint32_t id);
 typedef void (*usbredirparser_reset_status)(void *priv,
     uint32_t id, struct usb_redir_reset_status_header *reset_status);
@@ -95,7 +95,7 @@ struct usbredirparser *usbredirparser_create(
     usbredirparser_log log_func,
     usbredirparser_read read_func,
     usbredirparser_write write_func,
-    usbredirparser_report_ep_types report_ep_types_func,
+    usbredirparser_ep_info ep_info_func,
     usbredirparser_reset reset_func,
     usbredirparser_reset_status reset_status_func,
     usbredirparser_set_configuration set_configuration_func,
@@ -146,8 +146,8 @@ uint32_t *usbredirparser_get_peer_caps(int *caps_len_ret);
    2) if their is not enough memory for buffers the packet will be dropped
       (and an error message will be logged */
 /* Control packets: */
-void usbredirparser_send_report_ep_types(struct usbredirparser *parser,
-    struct usb_redir_report_ep_types_header *report_ep_types);
+void usbredirparser_send_ep_info(struct usbredirparser *parser,
+    struct usb_redir_ep_info_header *ep_info);
 void usbredirparser_send_reset(struct usbredirparser *parser, uint32_t id);
 void usbredirparser_send_reset_status(struct usbredirparser *parser,
     uint32_t id, struct usb_redir_reset_status_header *reset_status);
