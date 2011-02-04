@@ -155,15 +155,16 @@ usb_redir_header.id:      0 (always as this is an unsolicited packet)
 
 struct usb_redir_ep_info_header {
     uint8_t type[32];
+    uint8_t interval[32];
     uint8_t interface[32];
 }
 
 No packet type specific additional data.
 
-This packet gets send by the usb-host to let the usb-guest know the type of
-and to which interface they belong for all possible endpoints, first 0-15 out,
-then 0-15 in. This gets send after a (successful) initial connection, reset,
-set_config and set_alt_setting.
+This packet gets send by the usb-host to let the usb-guest know the endpoint
+type, interval and interface it belongs to for all possible endpoints,
+first 0-15 out, then 0-15 in. This gets send after a (successful) initial
+connection, reset, set_config and set_alt_setting.
 
 usb_redir_reset
 ---------------

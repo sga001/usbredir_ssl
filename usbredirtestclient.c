@@ -434,8 +434,9 @@ static void usbredirtestclient_ep_info(void *priv,
 
     for (i = 0; i < 32; i++) {
        if (ep_info->type[i] != usb_redir_type_invalid) {
-           printf("endpoint: %02X, interface: %d, type: %d\n", I2EP(i),
-                  (int)ep_info->interface[i], (int)ep_info->type[i]);
+           printf("endpoint: %02X, type: %d, interval: %d, interface: %d\n",
+                  I2EP(i), (int)ep_info->type[i], (int)ep_info->interval[i],
+                  (int)ep_info->interface[i]);
        }
     }
 }

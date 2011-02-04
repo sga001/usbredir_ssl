@@ -86,6 +86,7 @@ struct usb_redir_hello_header {
 
 struct usb_redir_ep_info_header {
     uint8_t type[32];
+    uint8_t interval[32];
     uint8_t interface[32];
 };
 

@@ -55,7 +55,6 @@ struct usbredirtransfer {
 
 struct usbredirhost_ep {
     uint8_t type;
-    uint8_t interface; /* bInterfaceNumber this ep belongs to */
     uint8_t iso_started;
     uint8_t iso_pkts_per_transfer;
     uint8_t iso_transfer_count;
@@ -200,7 +199,9 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
         } else {
             host->endpoint[i].type = usb_redir_type_invalid;
         }
-        host->endpoint[i].interface = 0;
+        ep_info.type[i] = host->endpoint[i].type;
+        ep_info.interface[i] = 0;
+        ep_info.interval[i] = 0;
     }
 
     for (i = 0; i < host->config->bNumInterfaces; i++) {
@@ -208,19 +209,17 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
             &host->config->interface[i].altsetting[host->alt_setting[i]];
         for (j = 0; j < intf_desc->bNumEndpoints; j++) {
             ep_address = intf_desc->endpoint[j].bEndpointAddress;
-            host->endpoint[EP2I(ep_address)].type =
-                intf_desc->endpoint[j].bmAttributes &
-                    LIBUSB_TRANSFER_TYPE_MASK;
-            host->endpoint[EP2I(ep_address)].interface =
-                intf_desc->bInterfaceNumber;
             host->endpoint[EP2I(ep_address)].max_packetsize =
                 libusb_get_max_iso_packet_size(host->dev, ep_address);
+            host->endpoint[EP2I(ep_address)].type =
+            ep_info.type[EP2I(ep_address)] =
+                intf_desc->endpoint[j].bmAttributes &
+                    LIBUSB_TRANSFER_TYPE_MASK;
+            ep_info.interval[EP2I(ep_address)] =
+                intf_desc->endpoint[j].bInterval;
+            ep_info.interface[EP2I(ep_address)] =
+                intf_desc->bInterfaceNumber;
         }
-    }
-
-    for (i = 0; i < MAX_ENDPOINTS; i++) {
-        ep_info.type[i] = host->endpoint[i].type;
-        ep_info.interface[i] = host->endpoint[i].interface;
     }
     usbredirparser_send_ep_info(host->parser, &ep_info);
 }
