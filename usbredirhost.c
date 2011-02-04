@@ -570,7 +570,12 @@ static int usbredirhost_submit_iso_transfer(struct usbredirhost *host,
     return usb_redir_success;
 }
 
-/* Returns 1 if the status is ok, 0 if something is wrong with the packet */
+/* Return value:
+    0 All ok
+    1 Packet borked, continue with next packet / urb
+    2 Stream borked, full stop, no resubmit, etc.
+   Note in the case of a return value of 2 this function takes care of
+   sending an iso status message to the usb-guest. */
 static int usbredirhost_handle_iso_status(struct usbredirhost *host,
     uint32_t id, uint8_t ep, int r)
 {
@@ -578,10 +583,10 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
 
     switch (r) {
     case LIBUSB_TRANSFER_COMPLETED:
-        return 1;
+        return 0;
     case LIBUSB_TRANSFER_CANCELLED:
         /* Stream was intentionally stopped */
-        return 0;
+        return 2;
     case LIBUSB_TRANSFER_STALL:
         /* Uhoh, Cancel the stream (but don't free it), clear stall
            and in case of an input stream resubmit the transfers */
@@ -592,7 +597,7 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
         if (r < 0) {
             usbredirhost_send_iso_status(host, id, ep,
                                   libusb_status_or_error_to_redir_status(r));
-            return 0;
+            return 2;
         }
         if (ep & LIBUSB_ENDPOINT_IN) {
             for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
@@ -602,17 +607,23 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
                                     host->endpoint[EP2I(ep)].iso_transfer[i]);
                 if (status != usb_redir_success) {
                     usbredirhost_send_iso_status(host, id, ep, status);
-                    return 0;
+                    return 2;
                 }
             }
             host->endpoint[EP2I(ep)].iso_started = 1;
         }
-        return 0;
+        /* No iso status message, stall successfully cleared */
+        return 2;
+    case LIBUSB_TRANSFER_NO_DEVICE:
+        usbredirhost_send_iso_status(host, id, ep,
+                             libusb_status_or_error_to_redir_status(r));
+        return 2;
+    case LIBUSB_TRANSFER_OVERFLOW:
+    case LIBUSB_TRANSFER_ERROR:
+    case LIBUSB_TRANSFER_TIMED_OUT:
     default:
         ERROR("iso stream error on endpoint %02X: %d", (unsigned int)ep, r);
-        usbredirhost_send_iso_status(host, id, ep,
-                                   libusb_status_or_error_to_redir_status(r));
-        return 0;
+        return 1;
     }
 }
 
@@ -622,31 +633,62 @@ static void usbredirhost_iso_packet_complete(
     struct usbredirtransfer *transfer = libusb_transfer->user_data;
     struct usbredirhost *host = transfer->host;
     uint8_t ep = libusb_transfer->endpoint;
-    int i, status;
+    int i, r, len, status;
 
     /* Mark transfer completed (iow not submitted) */
     transfer->iso_packet_idx = 0;
 
     /* Check overal transfer status */
-    if (!usbredirhost_handle_iso_status(host, transfer->id, ep,
-                                        libusb_transfer->status)) {
+    r = libusb_transfer->status;
+    switch (usbredirhost_handle_iso_status(host, transfer->id, ep, r)) {
+    case 0:
+        break;
+    case 1:
+        status = libusb_status_or_error_to_redir_status(r);
+        if (ep & LIBUSB_ENDPOINT_IN) {
+            struct usb_redir_iso_packet_header iso_header = {
+                .endpoint = ep,
+                .status   = status,
+                .length   = 0
+            };
+            usbredirparser_send_iso_packet(host->parser, transfer->id,
+                           &iso_header, NULL, 0);
+            transfer->id += libusb_transfer->num_iso_packets;
+            goto resubmit;
+        } else {
+            usbredirhost_send_iso_status(host, transfer->id, ep, status);
+            return;
+        }
+        break;
+    case 2:
         return;
     }
 
     /* Check per packet status and send ok input packets to usb-guest */
     for (i = 0; i < libusb_transfer->num_iso_packets; i++) {
-        if (!usbredirhost_handle_iso_status(host, transfer->id, ep,
-                               libusb_transfer->iso_packet_desc[i].status)) {
+        r   = libusb_transfer->iso_packet_desc[i].status;
+        len = libusb_transfer->iso_packet_desc[i].actual_length;
+        status = libusb_status_or_error_to_redir_status(r);
+        switch (!usbredirhost_handle_iso_status(host, transfer->id, ep, r)) {
+        case 0:
+            break;
+        case 1:
+            if (ep & LIBUSB_ENDPOINT_IN) {
+                len = 0;
+            } else {
+                usbredirhost_send_iso_status(host, transfer->id, ep, status);
+                return; /* We send max one iso status message per urb */
+            }
+            break;
+        case 2:
             return;
         }
         if (ep & LIBUSB_ENDPOINT_IN) {
-            struct usb_redir_iso_packet_header iso_header;
-
-            iso_header.endpoint = ep;
-            iso_header.status   = usb_redir_success;
-            iso_header.length   =
-                libusb_transfer->iso_packet_desc[i].actual_length;
-
+            struct usb_redir_iso_packet_header iso_header = {
+                .endpoint = ep,
+                .status   = status,
+                .length   = len
+            };
             usbredirparser_send_iso_packet(host->parser, transfer->id,
                            &iso_header,
                            libusb_get_iso_packet_buffer(libusb_transfer, i),
@@ -658,6 +700,7 @@ static void usbredirhost_iso_packet_complete(
     /* And for input transfers resubmit the transfer (output transfers
        get resubmitted when they have all their packets filled with data) */
     if (ep & LIBUSB_ENDPOINT_IN) {
+resubmit:
         transfer->id += (host->endpoint[EP2I(ep)].iso_transfer_count - 1) *
                         libusb_transfer->num_iso_packets;
         status = usbredirhost_submit_iso_transfer(host, transfer);
