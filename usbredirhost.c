@@ -157,7 +157,8 @@ static int usbredirhost_write(void *priv, uint8_t *data, int count)
    in case of submission error (the codes don't overlap), using the completion
    handler to report back the status and cleanup as it would on completion of
    a successfully submitted transfer. */
-static int libusb_status_or_error_to_redir_status(int status)
+static int libusb_status_or_error_to_redir_status(struct usbredirhost *host,
+                                                  int status)
 {
     switch (status) {
         case LIBUSB_TRANSFER_COMPLETED:
@@ -171,6 +172,7 @@ static int libusb_status_or_error_to_redir_status(int status)
         case LIBUSB_TRANSFER_STALL:
             return usb_redir_stall;
         case LIBUSB_TRANSFER_NO_DEVICE:
+            WARNING("device disconnected");
             return usb_redir_disconnected;
         case LIBUSB_TRANSFER_OVERFLOW:
             return usb_redir_ioerror;
@@ -238,7 +240,7 @@ static int usbredirhost_claim(struct usbredirhost *host)
     if (r < 0) {
         ERROR("could not get descriptors for configuration %d: %d",
               host->active_config, r);
-        return libusb_status_or_error_to_redir_status(r);
+        return libusb_status_or_error_to_redir_status(host, r);
     }
     if (host->config->bNumInterfaces > MAX_INTERFACES) {
         ERROR("usb decriptor has too much intefaces (%d > %d)",
@@ -256,7 +258,7 @@ static int usbredirhost_claim(struct usbredirhost *host)
         if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
             ERROR("could not detach driver from interface %d (configuration %d): %d",
                   n, host->active_config, r);
-            ret = libusb_status_or_error_to_redir_status(r);
+            ret = libusb_status_or_error_to_redir_status(host, r);
             goto error;
         }
         /* Note indexed by i not n !! (too ensure we don't go out of bound) */
@@ -266,7 +268,7 @@ static int usbredirhost_claim(struct usbredirhost *host)
         if (r < 0) {
             ERROR("could not claim interface %d (configuration %d): %d",
                   n, host->active_config, r);
-            ret = libusb_status_or_error_to_redir_status(r);
+            ret = libusb_status_or_error_to_redir_status(host, r);
             goto error;
         }
     }
@@ -563,7 +565,7 @@ static int usbredirhost_submit_iso_transfer(struct usbredirhost *host,
         ERROR("submitting iso transfer on ep %02x: %d, stopping stream",
               (unsigned int)ep, r);
         usbredirhost_cancel_iso_stream(host, ep, 1);
-        return libusb_status_or_error_to_redir_status(r);
+        return libusb_status_or_error_to_redir_status(host, r);
     }
 
     transfer->iso_packet_idx = ISO_SUBMITTED_IDX;
@@ -596,7 +598,7 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
         r = libusb_clear_halt(host->handle, ep);
         if (r < 0) {
             usbredirhost_send_iso_status(host, id, ep,
-                                  libusb_status_or_error_to_redir_status(r));
+                             libusb_status_or_error_to_redir_status(host, r));
             return 2;
         }
         if (ep & LIBUSB_ENDPOINT_IN) {
@@ -616,7 +618,7 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
         return 2;
     case LIBUSB_TRANSFER_NO_DEVICE:
         usbredirhost_send_iso_status(host, id, ep,
-                             libusb_status_or_error_to_redir_status(r));
+                             libusb_status_or_error_to_redir_status(host, r));
         return 2;
     case LIBUSB_TRANSFER_OVERFLOW:
     case LIBUSB_TRANSFER_ERROR:
@@ -644,7 +646,7 @@ static void usbredirhost_iso_packet_complete(
     case 0:
         break;
     case 1:
-        status = libusb_status_or_error_to_redir_status(r);
+        status = libusb_status_or_error_to_redir_status(host, r);
         if (ep & LIBUSB_ENDPOINT_IN) {
             struct usb_redir_iso_packet_header iso_header = {
                 .endpoint = ep,
@@ -668,7 +670,7 @@ static void usbredirhost_iso_packet_complete(
     for (i = 0; i < libusb_transfer->num_iso_packets; i++) {
         r   = libusb_transfer->iso_packet_desc[i].status;
         len = libusb_transfer->iso_packet_desc[i].actual_length;
-        status = libusb_status_or_error_to_redir_status(r);
+        status = libusb_status_or_error_to_redir_status(host, r);
         switch (!usbredirhost_handle_iso_status(host, transfer->id, ep, r)) {
         case 0:
             break;
@@ -914,7 +916,7 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
     if (r < 0) {
         ERROR("could not set alt setting for interface %d to %d: %d",
               (int)set_alt_setting->interface, (int)set_alt_setting->alt, r);
-        status.status = libusb_status_or_error_to_redir_status(r);
+        status.status = libusb_status_or_error_to_redir_status(host, r);
         goto exit;
     }
     host->alt_setting[i] = set_alt_setting->alt;
@@ -1023,7 +1025,7 @@ static void usbredirhost_control_packet_complete(
     struct usbredirhost *host = transfer->host;
 
     control_header = transfer->control_header;
-    control_header.status = libusb_status_or_error_to_redir_status(
+    control_header.status = libusb_status_or_error_to_redir_status(host,
                                                   libusb_transfer->status);
     control_header.length = libusb_transfer->actual_length;
 
