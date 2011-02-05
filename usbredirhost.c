@@ -963,7 +963,7 @@ static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
     status = usbredirhost_alloc_iso_stream(host, ep,
                    start_iso_stream->pkts_per_urb, start_iso_stream->no_urbs);
     if (status != usb_redir_success) {
-        usbredirhost_send_iso_status(host, id, ep, status);
+        usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
         return;
     }
 
