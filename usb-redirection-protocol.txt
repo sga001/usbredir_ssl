@@ -22,6 +22,7 @@ Version 0.2
 
 Version 0.3
 -Add a usb_redir_ep_info packet
+-Report usb_redir_stall as iso status error to indicate a stream stop
 
 
 USB redirerection protocol (draft)
@@ -354,6 +355,10 @@ started until enough packets are buffered.
 
 Note that this can also be send unsolicited by a usb-host in case of an
 error with an iso output stream, see usb_redir_iso_packet.
+
+To allow the usb-guest to detect if the stream was adversely stopped, the
+usb-host will always report usb_redir_stall as status if the stream was
+stopped for any reason other then an usb_redir_stop_iso_stream.
 
 
 usb_redir_alloc_bulk_streams

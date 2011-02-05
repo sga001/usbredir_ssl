@@ -597,8 +597,9 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
         usbredirhost_cancel_iso_stream(host, ep, 0);
         r = libusb_clear_halt(host->handle, ep);
         if (r < 0) {
-            usbredirhost_send_iso_status(host, id, ep,
-                             libusb_status_or_error_to_redir_status(host, r));
+            usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
+            /* Failed to clear stall, free iso buffers */
+            usbredirhost_cancel_iso_stream(host, ep, 1);
             return 2;
         }
         if (ep & LIBUSB_ENDPOINT_IN) {
@@ -608,7 +609,8 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
                 status = usbredirhost_submit_iso_transfer(host,
                                     host->endpoint[EP2I(ep)].iso_transfer[i]);
                 if (status != usb_redir_success) {
-                    usbredirhost_send_iso_status(host, id, ep, status);
+                    usbredirhost_send_iso_status(host, id, ep,
+                                                 usb_redir_stall);
                     return 2;
                 }
             }
@@ -707,7 +709,8 @@ resubmit:
                         libusb_transfer->num_iso_packets;
         status = usbredirhost_submit_iso_transfer(host, transfer);
         if (status != usb_redir_success) {
-            usbredirhost_send_iso_status(host, transfer->id, ep, status);
+            usbredirhost_send_iso_status(host, transfer->id, ep,
+                                         usb_redir_stall);
         }
     }
 }
@@ -972,7 +975,7 @@ static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
             status = usbredirhost_submit_iso_transfer(host,
                          host->endpoint[EP2I(ep)].iso_transfer[i]);
             if (status != usb_redir_success) {
-                usbredirhost_send_iso_status(host, id, ep, status);
+                usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
                 return;
             }
         }
@@ -1186,7 +1189,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
                 host->endpoint[EP2I(ep)].iso_pkts_per_transfer) {
             status = usbredirhost_submit_iso_transfer(host, transfer);
             if (status != usb_redir_success) {
-                usbredirhost_send_iso_status(host, id, ep, status);
+                usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
                 return;
             }
         }
@@ -1202,7 +1205,8 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
                 status = usbredirhost_submit_iso_transfer(host,
                                     host->endpoint[EP2I(ep)].iso_transfer[i]);
                 if (status != usb_redir_success) {
-                    usbredirhost_send_iso_status(host, id, ep, status);
+                    usbredirhost_send_iso_status(host, id, ep,
+                                                 usb_redir_stall);
                     return;
                 }
             }
