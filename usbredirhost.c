@@ -211,8 +211,10 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
             &host->config->interface[i].altsetting[host->alt_setting[i]];
         for (j = 0; j < intf_desc->bNumEndpoints; j++) {
             ep_address = intf_desc->endpoint[j].bEndpointAddress;
-            host->endpoint[EP2I(ep_address)].max_packetsize =
-                libusb_get_max_iso_packet_size(host->dev, ep_address);
+            /* FIXME libusb_get_max_iso_packet_size always returns 0
+               independent of alt setting?? */
+            host->endpoint[EP2I(ep_address)].max_packetsize = intf_desc->endpoint[j].wMaxPacketSize;
+                /* libusb_get_max_iso_packet_size(host->dev, ep_address); */
             host->endpoint[EP2I(ep_address)].type =
             ep_info.type[EP2I(ep_address)] =
                 intf_desc->endpoint[j].bmAttributes &
@@ -959,6 +961,12 @@ static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
     struct usbredirhost *host = priv;
     int i, status;
     uint8_t ep = start_iso_stream->endpoint;
+
+    if (host->endpoint[EP2I(ep)].iso_transfer_count) {
+        ERROR("received iso start for already started iso stream");
+        usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
+        return;
+    }
 
     status = usbredirhost_alloc_iso_stream(host, ep,
                    start_iso_stream->pkts_per_urb, start_iso_stream->no_urbs);
