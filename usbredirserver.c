@@ -39,7 +39,7 @@
 #define VERSION "usbredirserver 0.0"
 #endif
 
-static int verbose = usbredirparser_info; /* 2 */
+static int verbose = usbredirparser_info;
 static int client_fd, running = 1;
 static libusb_context *ctx;
 static struct usbredirhost *host;

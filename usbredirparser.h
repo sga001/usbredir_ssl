@@ -26,8 +26,8 @@
 struct usbredirparser;
 
 /* Called by a usbredirparser to log various messages */
-enum { usbredirparser_error, usbredirparser_warning, usbredirparser_info,
-       usbredirparser_debug, usbredirparser_debug2 };
+enum { usbredirparser_none, usbredirparser_error, usbredirparser_warning,
+       usbredirparser_info, usbredirparser_debug, usbredirparser_debug2 };
 typedef void (*usbredirparser_log)(void *priv, int level, const char *msg);
 
 /* Called by a usbredirparser to read/write data to its peer.
