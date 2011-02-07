@@ -69,6 +69,7 @@ struct usbredirhost {
     usbredirparser_read read_func;
     usbredirparser_write write_func;
     void *func_priv;
+    int verbose;
     libusb_device *dev;
     libusb_device_handle *handle;
     struct libusb_config_descriptor *config;
@@ -85,6 +86,10 @@ static void va_log(struct usbredirhost *host, int verbose,
 {
     char buf[512];
     va_list ap;
+
+    if (verbose < host->verbose) {
+        return;
+    }
 
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
@@ -337,7 +342,7 @@ struct usbredirhost *usbredirhost_open(libusb_device_handle *usb_dev_handle,
     usbredirparser_log log_func,
     usbredirparser_read  read_guest_data_func,
     usbredirparser_write write_guest_data_func,
-    void *func_priv, const char *version)
+    void *func_priv, const char *version, int verbose)
 {
     struct usbredirhost *host;
     int r;
@@ -355,6 +360,7 @@ struct usbredirhost *usbredirhost_open(libusb_device_handle *usb_dev_handle,
     host->read_func = read_guest_data_func;
     host->write_func = write_guest_data_func;
     host->func_priv = func_priv;
+    host->verbose = verbose;
     host->parser = usbredirparser_create(usbredirhost_log,
                                          usbredirhost_read,
                                          usbredirhost_write,
@@ -1041,6 +1047,21 @@ static void usbredirhost_control_packet_complete(
     control_header.length = libusb_transfer->actual_length;
 
     if (control_header.endpoint & LIBUSB_ENDPOINT_IN) {
+        if (usbredirparser_debug2 >= host->verbose) {
+            int i, j, n, len = libusb_transfer->actual_length;
+            uint8_t *data =
+                libusb_transfer->buffer + LIBUSB_CONTROL_SETUP_SIZE;
+
+            for (i = 0; i < len; i += j) {
+                char buf[128];
+
+                n = sprintf(buf, "ctrl data:");
+                for (j = 0; j < 8 && i + j < len; j++){
+                     n += sprintf(buf + n, " %02x", data[i + j]);
+                }
+                va_log(host, usbredirparser_debug2, buf);
+            }
+        }
         usbredirparser_send_control_packet(host->parser, transfer->id,
                                            &control_header,
                                            libusb_transfer->buffer +
@@ -1105,6 +1126,19 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
                               control_header->length);
 
     if (!(control_header->endpoint & LIBUSB_ENDPOINT_IN)) {
+        if (usbredirparser_debug2 >= host->verbose) {
+            int i, j, n;
+
+            for (i = 0; i < data_len; i += j) {
+                char buf[128];
+
+                n = sprintf(buf, "ctrl data:");
+                for (j = 0; j < 8 && i + j < data_len; j++){
+                     n += sprintf(buf + n, " %02x", data[i + j]);
+                }
+                va_log(host, usbredirparser_debug2, buf);
+            }
+        }
         memcpy(buffer + LIBUSB_CONTROL_SETUP_SIZE, data, data_len);
         free(data);
     }

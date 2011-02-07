@@ -53,7 +53,7 @@ struct usbredirhost *usbredirhost_open(libusb_device_handle *usb_dev_handle,
     usbredirparser_log log_func,
     usbredirparser_read  read_guest_data_func,
     usbredirparser_write write_guest_data_func,
-    void *func_priv, const char *version);
+    void *func_priv, const char *version, int verbose);
 
 /* Close the usbredirhost, returning control of the device back to any
    host kernel drivers for it, freeing any allocated memory, etc. */

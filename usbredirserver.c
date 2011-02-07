@@ -91,7 +91,7 @@ static int usbredirserver_write(void *priv, uint8_t *data, int count)
 static void usage(int exit_code, char *argv0)
 {
     fprintf(exit_code? stderr:stdout,
-        "Usage: %s [-p|--port <port>] [-v|--verbose <0-3>] <usbbus-usbaddr|vendorid:prodid>\n",
+        "Usage: %s [-p|--port <port>] [-v|--verbose <0-4>] <usbbus-usbaddr|vendorid:prodid>\n",
         argv0);
     exit(exit_code);
 }
@@ -325,7 +325,7 @@ int main(int argc, char *argv[])
 
         host = usbredirhost_open(handle, usbredirserver_log,
                                  usbredirserver_read, usbredirserver_write,
-                                 NULL, VERSION);
+                                 NULL, VERSION, verbose);
         if (!host)
             exit(1);
         run_main_loop();
