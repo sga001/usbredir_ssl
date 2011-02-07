@@ -81,13 +81,13 @@ struct usbredirhost {
     struct usbredirtransfer transfers_head;
 };
 
-static void va_log(struct usbredirhost *host, int verbose,
+static void va_log(struct usbredirhost *host, int level,
     const char *fmt, ...)
 {
     char buf[512];
     va_list ap;
 
-    if (verbose < host->verbose) {
+    if (level > host->verbose) {
         return;
     }
 
@@ -95,7 +95,7 @@ static void va_log(struct usbredirhost *host, int verbose,
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     
-    host->log_func(host->func_priv, verbose, buf);
+    host->log_func(host->func_priv, level, buf);
 }
 
 #define ERROR(...)   va_log(host, usbredirparser_error, \

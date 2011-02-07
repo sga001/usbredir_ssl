@@ -91,7 +91,7 @@ static int usbredirserver_write(void *priv, uint8_t *data, int count)
 static void usage(int exit_code, char *argv0)
 {
     fprintf(exit_code? stderr:stdout,
-        "Usage: %s [-p|--port <port>] [-v|--verbose <0-4>] <usbbus-usbaddr|vendorid:prodid>\n",
+        "Usage: %s [-p|--port <port>] [-v|--verbose <0-5>] <usbbus-usbaddr|vendorid:prodid>\n",
         argv0);
     exit(exit_code);
 }
