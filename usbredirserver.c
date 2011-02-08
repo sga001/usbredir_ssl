@@ -264,6 +264,8 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+    libusb_set_debug(ctx, verbose);
+
     memset(&hints, 0, sizeof(hints));
     hints.ai_flags = AI_ADDRCONFIG | AI_NUMERICSERV | AI_PASSIVE;
     hints.ai_family = AF_UNSPEC;
