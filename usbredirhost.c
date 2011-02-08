@@ -815,28 +815,16 @@ static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
 static void usbredirhost_reset(void *priv, uint32_t id)
 {
     struct usbredirhost *host = priv;
-    struct usb_redir_reset_status_header status = { usb_redir_disconnected };
+    struct usb_redir_reset_status_header status;
     int r;
 
     r = libusb_reset_device(host->handle);
-    if (r < 0) {
-        ERROR("resetting device: %d", r);
-        goto exit;
-    }
-    /* Resetting releases the interfaces and re-attaches the driver */
-    memset(host->driver_detached, 0, sizeof(host->driver_detached));
-    host->claimed = 0;
-
-    r = libusb_get_configuration(host->handle, &host->active_config);
-    if (r < 0) {
-        ERROR("could not get active configuration: %d", r);
-        goto exit;
-    }
-
-    if (usbredirhost_claim(host) == usb_redir_success) {
+    if (r == 0) {
         status.status = usb_redir_success;
+    } else {
+        ERROR("resetting device: %d", r);
+        status.status = usb_redir_disconnected;
     }
-exit:
     usbredirparser_send_reset_status(host->parser, id, &status);
 }
 
