@@ -285,12 +285,10 @@ static int usbredirhost_claim(struct usbredirhost *host)
     return ret;
 
 error:
-    if (host->driver_detached[i]) {
-        libusb_attach_kernel_driver(host->handle, n);
-    }
-    for (i--; i >= 0; i--) {
+    for (; i >= 0; i--) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
 
+        /* This is a nop on non claimed interfaces */
         libusb_release_interface(host->handle, n);
 
         if (host->driver_detached[i]) {
