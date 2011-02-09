@@ -43,6 +43,8 @@
 #define VERSION "usbredirtestclient 0.0"
 #endif
 
+static void usbredirtestclient_device_info(void *priv,
+    struct usb_redir_device_info_header *device_info);
 static void usbredirtestclient_ep_info(void *priv,
     struct usb_redir_ep_info_header *ep_info);
 static void usbredirtestclient_reset_status(void *priv, uint32_t id,
@@ -260,6 +262,7 @@ int main(int argc, char *argv[])
     parser = usbredirparser_create(usbredirtestclient_log,
                                    usbredirtestclient_read,
                                    usbredirtestclient_write,
+                                   usbredirtestclient_device_info,
                                    usbredirtestclient_ep_info,
                                    NULL, /* reset */
                                    usbredirtestclient_reset_status,
@@ -425,6 +428,12 @@ static void usbredirtestclient_cmdline_parse(void)
             printf("unknown command: '%s', type 'help' for help\n", cmd);
         }
     }
+}
+
+static void usbredirtestclient_device_info(void *priv,
+    struct usb_redir_device_info_header *device_info)
+{
+    printf("device info, speed: %s\n", device_info->slow ? "lo" : "full");
 }
 
 static void usbredirtestclient_ep_info(void *priv,

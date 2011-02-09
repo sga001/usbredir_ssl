@@ -23,6 +23,7 @@ Version 0.2
 Version 0.3
 -Add a usb_redir_ep_info packet
 -Report usb_redir_stall as iso status error to indicate a stream stop
+-Add a usb_redir_device_info packet
 
 
 USB redirerection protocol (draft)
@@ -96,6 +97,7 @@ Packet type list
 
 control packets:
 usb_redir_hello
+usb_redir_device_info
 usb_redir_ep_info
 usb_redir_reset
 usb_redir_reset_status
@@ -146,6 +148,23 @@ etc. the value is 64 + capabilities-array-size * sizeof(uint32_t).
 
 Currently the following capabilities are defined:
 usb_redir_cap_bulk_streams: USB 3 bulk streams are supported
+
+usb_redir_device_info
+---------------------
+
+usb_redir_header.type:    usb_redir_device_info
+usb_redir_header.length:  sizeof(usb_redir_device_info_header)
+usb_redir_header.id:      0 (always as this is an unsolicited packet)
+
+struct usb_redir_device_info_header {
+    uint8_t slow; /* True if this is a low speed device */
+}
+
+No packet type specific additional data.
+
+This packet gets send by the usb-host to let the usb-guest know the speed
+of the device. It gets send directly after the hello message (so also as
+soon as a connection gets established).
 
 usb_redir_ep_info
 -----------------

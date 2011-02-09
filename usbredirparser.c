@@ -36,6 +36,7 @@ struct usbredirparser {
     usbredirparser_log log_func;
     usbredirparser_read read_func;
     usbredirparser_write write_func;
+    usbredirparser_device_info device_info_func;
     usbredirparser_ep_info ep_info_func;
     usbredirparser_reset reset_func;
     usbredirparser_reset_status reset_status_func;
@@ -100,6 +101,7 @@ struct usbredirparser *usbredirparser_create(
     usbredirparser_log log_func,
     usbredirparser_read read_func,
     usbredirparser_write write_func,
+    usbredirparser_device_info device_info_func,
     usbredirparser_ep_info ep_info_func,
     usbredirparser_reset reset_func,
     usbredirparser_reset_status reset_status_func,
@@ -135,6 +137,7 @@ struct usbredirparser *usbredirparser_create(
     parser->log_func = log_func;
     parser->read_func = read_func;
     parser->write_func = write_func;
+    parser->device_info_func = device_info_func;
     parser->ep_info_func = ep_info_func;
     parser->reset_func = reset_func;
     parser->reset_status_func = reset_status_func;
@@ -234,6 +237,12 @@ static int usbredirparser_get_type_header_len(struct usbredirparser *parser,
     switch (type) {
     case usb_redir_hello:
         return sizeof(struct usb_redir_hello_header);
+    case usb_redir_device_info:
+        if (!command_for_host) {
+            return sizeof(struct usb_redir_device_info_header);
+        } else {
+            return -1;
+        }
     case usb_redir_ep_info:
         if (!command_for_host) {
             return sizeof(struct usb_redir_ep_info_header);
@@ -361,6 +370,10 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser)
         usbredirparser_handle_hello(parser,
             (struct usb_redir_hello_header *)parser->type_header,
             parser->data, parser->data_len);
+        break;
+    case usb_redir_device_info:
+        parser->device_info_func(parser->func_priv,
+            (struct usb_redir_device_info_header *)parser->type_header);
         break;
     case usb_redir_ep_info:
         parser->ep_info_func(parser->func_priv,
@@ -607,6 +620,13 @@ static void usbredirparser_queue(struct usbredirparser *parser, uint32_t type,
         wbuf = wbuf->next;
 
     wbuf->next = new_wbuf;
+}
+
+void usbredirparser_send_device_info(struct usbredirparser *parser,
+    struct usb_redir_device_info_header *device_info)
+{
+    usbredirparser_queue(parser, usb_redir_device_info, 0, device_info,
+                         NULL, 0);
 }
 
 void usbredirparser_send_ep_info(struct usbredirparser *parser,

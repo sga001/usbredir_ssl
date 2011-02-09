@@ -38,11 +38,13 @@ typedef int (*usbredirparser_write)(void *priv, uint8_t *data, int count);
 
 /* The below callbacks are called when a complete packet of the relevant
    type has been received.
-   
+
    Note that the passed in packet-type-specific-header's lifetime is only
    guarenteed to be that of the callback.
 
    Control packets: */
+typedef void (*usbredirparser_device_info)(void *priv,
+    struct usb_redir_device_info_header *device_info);
 typedef void (*usbredirparser_ep_info)(void *priv,
     struct usb_redir_ep_info_header *ep_info);
 typedef void (*usbredirparser_reset)(void *priv, uint32_t id);
@@ -95,6 +97,7 @@ struct usbredirparser *usbredirparser_create(
     usbredirparser_log log_func,
     usbredirparser_read read_func,
     usbredirparser_write write_func,
+    usbredirparser_device_info device_info_func,
     usbredirparser_ep_info ep_info_func,
     usbredirparser_reset reset_func,
     usbredirparser_reset_status reset_status_func,
@@ -146,6 +149,8 @@ uint32_t *usbredirparser_get_peer_caps(int *caps_len_ret);
    2) if their is not enough memory for buffers the packet will be dropped
       (and an error message will be logged */
 /* Control packets: */
+void usbredirparser_send_device_info(struct usbredirparser *parser,
+    struct usb_redir_device_info_header *device_info);
 void usbredirparser_send_ep_info(struct usbredirparser *parser,
     struct usb_redir_ep_info_header *ep_info);
 void usbredirparser_send_reset(struct usbredirparser *parser, uint32_t id);

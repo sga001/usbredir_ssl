@@ -45,6 +45,7 @@ enum {
 enum {
     /* Control packets */
     usb_redir_hello,
+    usb_redir_device_info,
     usb_redir_ep_info,
     usb_redir_reset,
     usb_redir_reset_status,
@@ -82,6 +83,10 @@ struct usb_redir_header {
 struct usb_redir_hello_header {
     char     version[64];
     uint32_t capabilities[0];
+};
+
+struct usb_redir_device_info_header {
+    uint8_t slow; /* True if this is a low speed device */
 };
 
 struct usb_redir_ep_info_header {
