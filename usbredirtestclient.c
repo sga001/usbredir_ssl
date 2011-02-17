@@ -433,7 +433,14 @@ static void usbredirtestclient_cmdline_parse(void)
 static void usbredirtestclient_device_info(void *priv,
     struct usb_redir_device_info_header *device_info)
 {
-    printf("device info, speed: %s\n", device_info->slow ? "lo" : "full");
+    switch (device_info->speed) {
+    case usb_redir_speed_low:   printf("device info: speed: low\n"); break;
+    case usb_redir_speed_full:  printf("device info: speed: full\n"); break;
+    case usb_redir_speed_high:  printf("device info: speed: high\n"); break;
+    case usb_redir_speed_super: printf("device info: speed: super\n"); break;
+    default:
+        printf("device info: speed: unknown\n");
+    }
 }
 
 static void usbredirtestclient_ep_info(void *priv,

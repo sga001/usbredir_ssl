@@ -344,7 +344,7 @@ struct usbredirhost *usbredirhost_open(libusb_device_handle *usb_dev_handle,
 {
     struct usbredirhost *host;
     struct usb_redir_device_info_header device_info;
-    enum libusb_speed_type speed;
+    enum libusb_speed speed;
     int r;
 
     host = calloc(1, sizeof(*host));
@@ -404,16 +404,14 @@ struct usbredirhost *usbredirhost_open(libusb_device_handle *usb_dev_handle,
         return NULL;
     }
 
-    r = libusb_get_device_speed(host->handle, &speed);
-    if (r < 0) {
-        ERROR("could not get device speed: %d", r);
-        usbredirhost_close(host);
-        return NULL;
-    }
-    if (speed == LIBUSB_SPEED_LOW) {
-        device_info.slow = 1;
-    } else {
-        device_info.slow = 0;
+    speed = libusb_get_device_speed(host->dev);
+    switch (speed) {
+    case LIBUSB_SPEED_LOW:   device_info.speed = usb_redir_speed_low; break;
+    case LIBUSB_SPEED_FULL:  device_info.speed = usb_redir_speed_full; break;
+    case LIBUSB_SPEED_HIGH:  device_info.speed = usb_redir_speed_high; break;
+    case LIBUSB_SPEED_SUPER: device_info.speed = usb_redir_speed_super; break;
+    default:
+        device_info.speed = usb_redir_speed_unknown;
     }
     usbredirparser_send_device_info(host->parser, &device_info);
 

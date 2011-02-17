@@ -43,6 +43,14 @@ enum {
 };
 
 enum {
+    usb_redir_speed_low,
+    usb_redir_speed_full,
+    usb_redir_speed_high,
+    usb_redir_speed_super,
+    usb_redir_speed_unknown = 255
+};
+
+enum {
     /* Control packets */
     usb_redir_hello,
     usb_redir_device_info,
@@ -86,7 +94,7 @@ struct usb_redir_hello_header {
 };
 
 struct usb_redir_device_info_header {
-    uint8_t slow; /* True if this is a low speed device */
+    uint8_t speed;
 };
 
 struct usb_redir_ep_info_header {

@@ -156,8 +156,16 @@ usb_redir_header.type:    usb_redir_device_info
 usb_redir_header.length:  sizeof(usb_redir_device_info_header)
 usb_redir_header.id:      0 (always as this is an unsolicited packet)
 
+enum {
+    usb_redir_speed_low,
+    usb_redir_speed_full,
+    usb_redir_speed_high,
+    usb_redir_speed_super,
+    usb_redir_speed_unknown = 255
+}
+
 struct usb_redir_device_info_header {
-    uint8_t slow; /* True if this is a low speed device */
+    uint8_t speed;
 }
 
 No packet type specific additional data.
@@ -172,6 +180,15 @@ usb_redir_ep_info
 usb_redir_header.type:    usb_redir_ep_info
 usb_redir_header.length:  sizeof(usb_redir_ep_info_header)
 usb_redir_header.id:      0 (always as this is an unsolicited packet)
+
+enum {
+    /* Note these 4 match the usb spec! */
+    usb_redir_type_control,
+    usb_redir_type_iso,
+    usb_redir_type_bulk,
+    usb_redir_type_interrupt,
+    usb_redir_type_invalid = 255
+}
 
 struct usb_redir_ep_info_header {
     uint8_t type[32];
