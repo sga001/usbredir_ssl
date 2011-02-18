@@ -1092,6 +1092,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
             control_packet->length = 0;
             usbredirparser_send_control_packet(host->parser, id, 
                                                control_packet, NULL, 0);
+            free(data);
             return;
         }
     } else {
@@ -1102,6 +1103,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
             control_packet->length = 0;
             usbredirparser_send_control_packet(host->parser, id,
                                                control_packet, NULL, 0);
+            free(data);
             return;
         }
     }
@@ -1109,12 +1111,14 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     buffer = malloc(LIBUSB_CONTROL_SETUP_SIZE + control_packet->length);
     if (!buffer) {
         ERROR("out of memory allocating transfer buffer, dropping packet");
+        free(data);
         return;
     }
 
     transfer = usbredirhost_alloc_transfer(host, 0);
     if (!transfer) {
         free(buffer);
+        free(data);
         return;
     }
 
