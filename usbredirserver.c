@@ -302,6 +302,14 @@ int main(int argc, char *argv[])
 
     while (running) {
         client_fd = accept(server_fd, NULL, 0);
+        if (client_fd == -1) {
+            if (errno == EINTR) {
+                continue;
+            }
+            perror("accept");
+            break;
+        }
+
         fcntl(client_fd, F_SETFL,
               (long)fcntl(client_fd, F_GETFL) | O_NONBLOCK);
 
