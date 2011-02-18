@@ -28,6 +28,7 @@
 #define MAX_ENDPOINTS  32
 #define MAX_INTERFACES 32 /* Max 32 endpoints and thus interfaces */
 #define CTRL_TIMEOUT 5000 /* USB specifies a 5 second max timeout */
+#define BULK_TIMEOUT 5000
 #define ISO_TIMEOUT  1000
 
 #define MAX_ISO_TRANSFER_COUNT       16
@@ -103,7 +104,10 @@ static void va_log(struct usbredirhost *host, int level,
 #define WARNING(...) va_log(host, usbredirparser_warning, \
                             "usbredirhost warning: " __VA_ARGS__)
 #define INFO(...)    va_log(host, usbredirparser_info, \
-                            "usbredirhost info: " __VA_ARGS__)
+                            "usbredirhost: " __VA_ARGS__)
+
+#define DEBUG(...)   va_log(host, usbredirparser_debug, \
+                            "usbredirhost: " __VA_ARGS__)
 
 static void usbredirhost_reset(void *priv, uint32_t id);
 static void usbredirhost_set_configuration(void *priv, uint32_t id,
@@ -1011,13 +1015,13 @@ static void usbredirhost_stop_iso_stream(void *priv, uint32_t id,
 static void usbredirhost_alloc_bulk_streams(void *priv, uint32_t id,
     struct usb_redir_alloc_bulk_streams_header *alloc_bulk_streams)
 {
-    struct usbredirhost *host = priv;
+    /* struct usbredirhost *host = priv; */
 }
 
 static void usbredirhost_free_bulk_streams(void *priv, uint32_t id,
     struct usb_redir_free_bulk_streams_header *free_bulk_streams)
 {
-    struct usbredirhost *host = priv;
+    /* struct usbredirhost *host = priv; */
 }
 
 static void usbredirhost_cancel_data_packet(void *priv, uint32_t id)
@@ -1165,11 +1169,124 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     }
 }
 
+static void usbredirhost_bulk_packet_complete(
+    struct libusb_transfer *libusb_transfer)
+{
+    struct usb_redir_bulk_packet_header bulk_packet;
+    struct usbredirtransfer *transfer = libusb_transfer->user_data;
+    struct usbredirhost *host = transfer->host;
+
+    bulk_packet = transfer->bulk_packet;
+    bulk_packet.status = libusb_status_or_error_to_redir_status(host,
+                                                  libusb_transfer->status);
+    bulk_packet.length = libusb_transfer->actual_length;
+
+    DEBUG("bulk complete ep %02X status %d len %d", bulk_packet.endpoint,
+          bulk_packet.status, bulk_packet.length);
+
+    if (bulk_packet.endpoint & LIBUSB_ENDPOINT_IN) {
+        if (usbredirparser_debug2 >= host->verbose) {
+            int i, j, n, len = libusb_transfer->actual_length;
+            uint8_t *data = libusb_transfer->buffer;
+
+            for (i = 0; i < len; i += j) {
+                char buf[128];
+
+                n = sprintf(buf, "bulk data:");
+                for (j = 0; j < 8 && i + j < len; j++){
+                     n += sprintf(buf + n, " %02x", data[i + j]);
+                }
+                va_log(host, usbredirparser_debug2, buf);
+            }
+        }
+        usbredirparser_send_bulk_packet(host->parser, transfer->id,
+                                        &bulk_packet,
+                                        libusb_transfer->buffer,
+                                        libusb_transfer->actual_length);
+    } else {
+        usbredirparser_send_bulk_packet(host->parser, transfer->id,
+                                        &bulk_packet, NULL, 0);
+    }
+
+    usbredirhost_remove_and_free_transfer(transfer);
+}
+
 static void usbredirhost_bulk_packet(void *priv, uint32_t id,
     struct usb_redir_bulk_packet_header *bulk_packet,
     uint8_t *data, int data_len)
 {
     struct usbredirhost *host = priv;
+    uint8_t ep = bulk_packet->endpoint;
+    struct usbredirtransfer *transfer;
+    int r;
+
+    DEBUG("bulk submit ep %02X len %d", ep, bulk_packet->length);
+
+    if (ep & LIBUSB_ENDPOINT_IN) {
+        if (data || data_len) {
+            ERROR("data len non zero for bulk input packet");
+            bulk_packet->status = usb_redir_inval;
+            bulk_packet->length = 0;
+            usbredirparser_send_bulk_packet(host->parser, id, 
+                                            bulk_packet, NULL, 0);
+            free(data);
+            return;
+        }
+        data = malloc(bulk_packet->length);
+        if (!data) {
+            ERROR("out of memory allocating bulk buffer, dropping packet");
+            return;
+        }
+    } else {
+        if (data_len != bulk_packet->length) {
+            ERROR("data len: %d != header len: %d for bulk packet",
+                  data_len, bulk_packet->length);
+            bulk_packet->status = usb_redir_inval;
+            bulk_packet->length = 0;
+            usbredirparser_send_bulk_packet(host->parser, id,
+                                            bulk_packet, NULL, 0);
+            free(data);
+            return;
+        }
+        if (usbredirparser_debug2 >= host->verbose) {
+            int i, j, n;
+
+            for (i = 0; i < data_len; i += j) {
+                char buf[128];
+
+                n = sprintf(buf, "bulk data:");
+                for (j = 0; j < 8 && i + j < data_len; j++){
+                     n += sprintf(buf + n, " %02x", data[i + j]);
+                }
+                va_log(host, usbredirparser_debug2, buf);
+            }
+        }
+        /* Note no memcpy, we can re-use the data buffer the parser
+           malloc-ed for us and expects us to free */
+    }
+
+    transfer = usbredirhost_alloc_transfer(host, 0);
+    if (!transfer) {
+        free(data);
+        return;
+    }
+
+    libusb_fill_bulk_transfer(transfer->transfer, host->handle, ep,
+                              data, bulk_packet->length,
+                              usbredirhost_bulk_packet_complete,
+                              transfer, CTRL_TIMEOUT);
+    transfer->id = id;
+    transfer->bulk_packet = *bulk_packet;
+
+    usbredirhost_add_transfer(host, transfer);
+
+    r = libusb_submit_transfer(transfer->transfer);
+    if (r < 0) {
+        ERROR("submitting bulk transfer on ep %02X: %d", ep, r);
+        transfer->transfer->actual_length = 0;
+        transfer->transfer->status = r;
+        usbredirhost_bulk_packet_complete(transfer->transfer);
+    }
 }
 
 static void usbredirhost_iso_packet(void *priv, uint32_t id,
