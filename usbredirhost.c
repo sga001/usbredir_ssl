@@ -45,9 +45,9 @@ struct usbredirtransfer {
     uint32_t id;
     int iso_packet_idx;
     union {
-        struct usb_redir_control_packet_header control_header;
-        struct usb_redir_bulk_packet_header bulk_header;
-        struct usb_redir_iso_packet_header iso_header;
+        struct usb_redir_control_packet_header control_packet;
+        struct usb_redir_bulk_packet_header bulk_packet;
+        struct usb_redir_iso_packet_header iso_packet;
     };
     struct usbredirtransfer *next;
     struct usbredirtransfer *prev;
@@ -123,13 +123,13 @@ static void usbredirhost_free_bulk_streams(void *priv, uint32_t id,
     struct usb_redir_free_bulk_streams_header *free_bulk_streams);
 static void usbredirhost_cancel_data_packet(void *priv, uint32_t id);
 static void usbredirhost_control_packet(void *priv, uint32_t id,
-    struct usb_redir_control_packet_header *control_header,
+    struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len);
 static void usbredirhost_bulk_packet(void *priv, uint32_t id,
-    struct usb_redir_bulk_packet_header *bulk_header,
+    struct usb_redir_bulk_packet_header *bulk_packet,
     uint8_t *data, int data_len);
 static void usbredirhost_iso_packet(void *priv, uint32_t id,
-    struct usb_redir_iso_packet_header *iso_header,
+    struct usb_redir_iso_packet_header *iso_packet,
     uint8_t *data, int data_len);
 
 static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
@@ -567,11 +567,11 @@ static int usbredirhost_bInterfaceNumber_to_index(
 static void usbredirhost_send_iso_status(struct usbredirhost *host,
     uint32_t id, uint8_t endpoint, uint8_t status)
 {
-    struct usb_redir_iso_stream_status_header header;
+    struct usb_redir_iso_stream_status_header iso_stream_status;
 
-    header.endpoint = endpoint;
-    header.status = status;
-    usbredirparser_send_iso_stream_status(host->parser, id, &header);
+    iso_stream_status.endpoint = endpoint;
+    iso_stream_status.status = status;
+    usbredirparser_send_iso_stream_status(host->parser, id, &iso_stream_status);
 }
 
 static int usbredirhost_submit_iso_transfer(struct usbredirhost *host,
@@ -670,13 +670,13 @@ static void usbredirhost_iso_packet_complete(
     case 1:
         status = libusb_status_or_error_to_redir_status(host, r);
         if (ep & LIBUSB_ENDPOINT_IN) {
-            struct usb_redir_iso_packet_header iso_header = {
+            struct usb_redir_iso_packet_header iso_packet = {
                 .endpoint = ep,
                 .status   = status,
                 .length   = 0
             };
             usbredirparser_send_iso_packet(host->parser, transfer->id,
-                           &iso_header, NULL, 0);
+                           &iso_packet, NULL, 0);
             transfer->id += libusb_transfer->num_iso_packets;
             goto resubmit;
         } else {
@@ -708,13 +708,13 @@ static void usbredirhost_iso_packet_complete(
             return;
         }
         if (ep & LIBUSB_ENDPOINT_IN) {
-            struct usb_redir_iso_packet_header iso_header = {
+            struct usb_redir_iso_packet_header iso_packet = {
                 .endpoint = ep,
                 .status   = status,
                 .length   = len
             };
             usbredirparser_send_iso_packet(host->parser, transfer->id,
-                           &iso_header,
+                           &iso_packet,
                            libusb_get_iso_packet_buffer(libusb_transfer, i),
                            libusb_transfer->iso_packet_desc[i].actual_length);
             transfer->id++;
@@ -1037,16 +1037,16 @@ static void usbredirhost_cancel_data_packet(void *priv, uint32_t id)
 static void usbredirhost_control_packet_complete(
     struct libusb_transfer *libusb_transfer)
 {
-    struct usb_redir_control_packet_header control_header;
+    struct usb_redir_control_packet_header control_packet;
     struct usbredirtransfer *transfer = libusb_transfer->user_data;
     struct usbredirhost *host = transfer->host;
 
-    control_header = transfer->control_header;
-    control_header.status = libusb_status_or_error_to_redir_status(host,
+    control_packet = transfer->control_packet;
+    control_packet.status = libusb_status_or_error_to_redir_status(host,
                                                   libusb_transfer->status);
-    control_header.length = libusb_transfer->actual_length;
+    control_packet.length = libusb_transfer->actual_length;
 
-    if (control_header.endpoint & LIBUSB_ENDPOINT_IN) {
+    if (control_packet.endpoint & LIBUSB_ENDPOINT_IN) {
         if (usbredirparser_debug2 >= host->verbose) {
             int i, j, n, len = libusb_transfer->actual_length;
             uint8_t *data =
@@ -1063,20 +1063,20 @@ static void usbredirhost_control_packet_complete(
             }
         }
         usbredirparser_send_control_packet(host->parser, transfer->id,
-                                           &control_header,
+                                           &control_packet,
                                            libusb_transfer->buffer +
                                                LIBUSB_CONTROL_SETUP_SIZE,
                                            libusb_transfer->actual_length);
     } else {
         usbredirparser_send_control_packet(host->parser, transfer->id,
-                                           &control_header, NULL, 0);
+                                           &control_packet, NULL, 0);
     }
 
     usbredirhost_remove_and_free_transfer(transfer);
 }
 
 static void usbredirhost_control_packet(void *priv, uint32_t id,
-    struct usb_redir_control_packet_header *control_header,
+    struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len)
 {
     struct usbredirhost *host = priv;
@@ -1085,28 +1085,28 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     int r;
 
     /* Verify data_len */
-    if (control_header->endpoint & LIBUSB_ENDPOINT_IN) {
+    if (control_packet->endpoint & LIBUSB_ENDPOINT_IN) {
         if (data || data_len) {
             ERROR("data len non zero for control input packet");
-            control_header->status = usb_redir_inval;
-            control_header->length = 0;
+            control_packet->status = usb_redir_inval;
+            control_packet->length = 0;
             usbredirparser_send_control_packet(host->parser, id, 
-                                               control_header, NULL, 0);
+                                               control_packet, NULL, 0);
             return;
         }
     } else {
-        if (data_len != control_header->length) {
+        if (data_len != control_packet->length) {
             ERROR("data len: %d != header len: %d for control packet",
-                  data_len, control_header->length);
-            control_header->status = usb_redir_inval;
-            control_header->length = 0;
+                  data_len, control_packet->length);
+            control_packet->status = usb_redir_inval;
+            control_packet->length = 0;
             usbredirparser_send_control_packet(host->parser, id,
-                                               control_header, NULL, 0);
+                                               control_packet, NULL, 0);
             return;
         }
     }
 
-    buffer = malloc(LIBUSB_CONTROL_SETUP_SIZE + control_header->length);
+    buffer = malloc(LIBUSB_CONTROL_SETUP_SIZE + control_packet->length);
     if (!buffer) {
         ERROR("out of memory allocating transfer buffer, dropping packet");
         return;
@@ -1119,13 +1119,13 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     }
 
     libusb_fill_control_setup(buffer,
-                              control_header->requesttype,
-                              control_header->request,
-                              control_header->value,
-                              control_header->index,
-                              control_header->length);
+                              control_packet->requesttype,
+                              control_packet->request,
+                              control_packet->value,
+                              control_packet->index,
+                              control_packet->length);
 
-    if (!(control_header->endpoint & LIBUSB_ENDPOINT_IN)) {
+    if (!(control_packet->endpoint & LIBUSB_ENDPOINT_IN)) {
         if (usbredirparser_debug2 >= host->verbose) {
             int i, j, n;
 
@@ -1147,14 +1147,14 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
                                  usbredirhost_control_packet_complete,
                                  transfer, CTRL_TIMEOUT);
     transfer->id = id;
-    transfer->control_header = *control_header;
+    transfer->control_packet = *control_packet;
 
     usbredirhost_add_transfer(host, transfer);
 
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
         ERROR("submitting control transfer on ep %02X: %d",
-              (unsigned int)control_header->endpoint, r);
+              (unsigned int)control_packet->endpoint, r);
         transfer->transfer->actual_length = 0;
         transfer->transfer->status = r;
         usbredirhost_control_packet_complete(transfer->transfer);
@@ -1162,18 +1162,18 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
 }
 
 static void usbredirhost_bulk_packet(void *priv, uint32_t id,
-    struct usb_redir_bulk_packet_header *bulk_header,
+    struct usb_redir_bulk_packet_header *bulk_packet,
     uint8_t *data, int data_len)
 {
     struct usbredirhost *host = priv;
 }
 
 static void usbredirhost_iso_packet(void *priv, uint32_t id,
-    struct usb_redir_iso_packet_header *iso_header,
+    struct usb_redir_iso_packet_header *iso_packet,
     uint8_t *data, int data_len)
 {
     struct usbredirhost *host = priv;
-    uint8_t ep = iso_header->endpoint;
+    uint8_t ep = iso_packet->endpoint;
     struct usbredirtransfer *transfer;
     int i, j, status;
 
