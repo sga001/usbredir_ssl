@@ -1322,24 +1322,28 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     if (host->endpoint[EP2I(ep)].type != LIBUSB_TRANSFER_TYPE_ISOCHRONOUS) {
         ERROR("received iso packet for non iso ep %02X", ep);
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
+        free(data);
         return;
     }
 
     if (ep & LIBUSB_ENDPOINT_IN) {
         ERROR("received iso out packet for iso input ep %02X", ep);
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
+        free(data);
         return;
     }
 
     if (host->endpoint[EP2I(ep)].iso_transfer_count == 0) {
         ERROR("received iso out packet for non started iso stream");
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
+        free(data);
         return;
     }
 
     if (data_len > host->endpoint[EP2I(ep)].max_packetsize) {
         ERROR("received iso out packet is larger than wMaxPacketSize");
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
+        free(data);
         return;
     }
 
@@ -1349,6 +1353,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     if (j == ISO_SUBMITTED_IDX) {
         WARNING("overflow of iso out queue on ep: %02X, dropping packet",
                 (unsigned int)ep);
+        free(data);
         return;
     }
 
@@ -1359,6 +1364,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     memcpy(libusb_get_iso_packet_buffer(transfer->transfer, j),
            data, data_len);
     transfer->transfer->iso_packet_desc[j].length = data_len;
+    free(data);
 
     j++;
     transfer->iso_packet_idx = j;
