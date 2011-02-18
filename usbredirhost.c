@@ -1084,12 +1084,24 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     uint8_t *data, int data_len)
 {
     struct usbredirhost *host = priv;
+    uint8_t ep = control_packet->endpoint;
     struct usbredirtransfer *transfer;
     unsigned char *buffer;
     int r;
 
+    /* Verify endpoint type */
+    if (host->endpoint[EP2I(ep)].type != usb_redir_type_control) {
+        ERROR("control packet on non control ep %02X", ep);
+        control_packet->status = usb_redir_inval;
+        control_packet->length = 0;
+        usbredirparser_send_control_packet(host->parser, id, 
+                                           control_packet, NULL, 0);
+        free(data);
+        return;
+    }
+
     /* Verify data_len */
-    if (control_packet->endpoint & LIBUSB_ENDPOINT_IN) {
+    if (ep & LIBUSB_ENDPOINT_IN) {
         if (data || data_len) {
             ERROR("data len non zero for control input packet");
             control_packet->status = usb_redir_inval;
@@ -1133,7 +1145,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
                               control_packet->index,
                               control_packet->length);
 
-    if (!(control_packet->endpoint & LIBUSB_ENDPOINT_IN)) {
+    if (!(ep & LIBUSB_ENDPOINT_IN)) {
         if (usbredirparser_debug2 >= host->verbose) {
             int i, j, n;
 
@@ -1161,8 +1173,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
 
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
-        ERROR("submitting control transfer on ep %02X: %d",
-              (unsigned int)control_packet->endpoint, r);
+        ERROR("submitting control transfer on ep %02X: %d", ep, r);
         transfer->transfer->actual_length = 0;
         transfer->transfer->status = r;
         usbredirhost_control_packet_complete(transfer->transfer);
@@ -1221,6 +1232,16 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
     int r;
 
     DEBUG("bulk submit ep %02X len %d", ep, bulk_packet->length);
+
+    if (host->endpoint[EP2I(ep)].type != usb_redir_type_bulk) {
+        ERROR("bulk packet on non bulk ep %02X", ep);
+        bulk_packet->status = usb_redir_inval;
+        bulk_packet->length = 0;
+        usbredirparser_send_bulk_packet(host->parser, id, 
+                                        bulk_packet, NULL, 0);
+        free(data);
+        return;
+    }
 
     if (ep & LIBUSB_ENDPOINT_IN) {
         if (data || data_len) {
@@ -1299,13 +1320,13 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     int i, j, status;
 
     if (host->endpoint[EP2I(ep)].type != LIBUSB_TRANSFER_TYPE_ISOCHRONOUS) {
-        ERROR("received iso packet for non iso endpoint");
+        ERROR("received iso packet for non iso ep %02X", ep);
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
         return;
     }
 
     if (ep & LIBUSB_ENDPOINT_IN) {
-        ERROR("received iso packet for an iso input endpoint");
+        ERROR("received iso out packet for iso input ep %02X", ep);
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
         return;
     }
