@@ -733,7 +733,7 @@ static void usbredirhost_iso_packet_complete(
             usbredirparser_send_iso_packet(host->parser, transfer->id,
                            &iso_packet,
                            libusb_get_iso_packet_buffer(libusb_transfer, i),
-                           libusb_transfer->iso_packet_desc[i].actual_length);
+                           len);
             transfer->id++;
         }
     }
