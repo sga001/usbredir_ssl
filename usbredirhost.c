@@ -25,11 +25,12 @@
 #include <string.h>
 #include "usbredirhost.h"
 
-#define MAX_ENDPOINTS  32
-#define MAX_INTERFACES 32 /* Max 32 endpoints and thus interfaces */
-#define CTRL_TIMEOUT 5000 /* USB specifies a 5 second max timeout */
-#define BULK_TIMEOUT 5000
-#define ISO_TIMEOUT  1000
+#define MAX_ENDPOINTS        32
+#define MAX_INTERFACES       32 /* Max 32 endpoints and thus interfaces */
+#define CTRL_TIMEOUT       5000 /* USB specifies a 5 second max timeout */
+#define BULK_TIMEOUT       5000
+#define ISO_TIMEOUT        1000
+#define INTERRUPT_TIMEOUT  1000
 
 #define MAX_ISO_TRANSFER_COUNT       16
 #define MAX_ISO_PACKETS_PER_TRANSFER 32
@@ -49,6 +50,7 @@ struct usbredirtransfer {
         struct usb_redir_control_packet_header control_packet;
         struct usb_redir_bulk_packet_header bulk_packet;
         struct usb_redir_iso_packet_header iso_packet;
+        struct usb_redir_interrupt_packet_header interrupt_packet;
     };
     struct usbredirtransfer *next;
     struct usbredirtransfer *prev;
@@ -62,6 +64,7 @@ struct usbredirhost_ep {
     int iso_out_idx;
     int max_packetsize;
     struct usbredirtransfer *iso_transfer[MAX_ISO_TRANSFER_COUNT];
+    struct usbredirtransfer *interrupt_in_transfer;
 };
 
 struct usbredirhost {
@@ -145,6 +148,8 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
 
 static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     uint8_t ep, int free);
+static void usbredirhost_cancel_interrupt_in_transfer(
+    struct usbredirhost *host, uint8_t ep);
 
 static void usbredirhost_log(void *priv, int level, const char *msg)
 {
@@ -861,6 +866,176 @@ static void usbredirhost_send_interrupt_status(struct usbredirhost *host,
                                                    &interrupt_status);
 }
 
+static int usbredirhost_submit_interrupt_in_transfer(struct usbredirhost *host,
+    uint8_t ep)
+{
+    int r;
+    struct usbredirtransfer *transfer;
+
+    transfer = host->endpoint[EP2I(ep)].interrupt_in_transfer;
+    r = libusb_submit_transfer(transfer->transfer);
+    if (r < 0) {
+        ERROR("submitting interrupt transfer on ep %02x: %d", ep, r);
+        usbredirhost_free_transfer(transfer);
+        host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
+        return usb_redir_stall;
+    }
+    return usb_redir_success;
+}
+
+static void usbredirhost_interrupt_packet_complete(
+    struct libusb_transfer *libusb_transfer)
+{
+    struct usbredirtransfer *transfer = libusb_transfer->user_data;
+    uint8_t ep = libusb_transfer->endpoint;
+    struct usb_redir_interrupt_packet_header interrupt_packet;
+    struct usbredirhost *host;
+    int len, status, r;
+
+    if (!transfer)
+        return; /* Destroyed by cancel_interrupt_in_transfer */
+
+    host = transfer->host;
+    status = libusb_status_or_error_to_redir_status(host,
+                                                    libusb_transfer->status);
+    len = libusb_transfer->actual_length;
+    DEBUG("interrupt complete ep %02X status %d len %d", ep, status, len);
+
+    if (!(ep & LIBUSB_ENDPOINT_IN)) {
+        /* Output endpoints are easy */
+        interrupt_packet = transfer->interrupt_packet;
+        interrupt_packet.status = status;
+        interrupt_packet.length = len;
+        usbredirparser_send_interrupt_packet(host->parser, transfer->id,
+                                             &interrupt_packet, NULL, 0);
+        usbredirhost_remove_and_free_transfer(transfer);
+        return;
+    }
+
+    /* Everything below is for input endpoints */
+    if (usbredirparser_debug2 >= host->verbose) {
+        int i, j, n;
+        uint8_t *data = libusb_transfer->buffer;
+
+        for (i = 0; i < len; i += j) {
+            char buf[128];
+
+            n = sprintf(buf, "interrupt data in:");
+            for (j = 0; j < 8 && i + j < len; j++){
+                 n += sprintf(buf + n, " %02x", data[i + j]);
+            }
+            va_log(host, usbredirparser_debug2, buf);
+        }
+    }
+
+    r = libusb_transfer->status;
+    switch (r) {
+    case LIBUSB_TRANSFER_COMPLETED:
+        break;
+    case LIBUSB_TRANSFER_CANCELLED:
+        /* intentionally stopped */
+        return;
+    case LIBUSB_TRANSFER_STALL:
+        WARNING("interrupt endpoint %02X stalled, clearing stall", ep);
+        r = libusb_clear_halt(host->handle, ep);
+        if (r < 0) {
+            /* Failed to clear stall, stop receiving */
+            usbredirhost_send_interrupt_status(host, transfer->id, ep,
+                                               usb_redir_stall);
+            usbredirhost_free_transfer(transfer);
+            host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
+            return;
+        }
+        transfer->id = 0;
+        goto resubmit;
+    case LIBUSB_TRANSFER_NO_DEVICE:
+        usbredirhost_send_interrupt_status(host, transfer->id, ep, status);
+        return;
+    case LIBUSB_TRANSFER_OVERFLOW:
+    case LIBUSB_TRANSFER_ERROR:
+    case LIBUSB_TRANSFER_TIMED_OUT:
+    default:
+        ERROR("interrupt in error on endpoint %02X: %d", ep, r);
+        len = 0;
+    }
+
+    interrupt_packet.endpoint = ep;
+    interrupt_packet.status   = status;
+    interrupt_packet.length   = len;
+    usbredirparser_send_interrupt_packet(host->parser, transfer->id,
+                          &interrupt_packet, transfer->transfer->buffer, len);
+    transfer->id++;
+
+resubmit:
+    status = usbredirhost_submit_interrupt_in_transfer(host, ep);
+    if (status != usb_redir_success) {
+        usbredirhost_send_interrupt_status(host, transfer->id, ep, status);
+    }
+}
+
+static int usbredirhost_alloc_interrupt_in_transfer(struct usbredirhost *host,
+    uint8_t ep)
+{
+    int buf_size;
+    unsigned char *buffer;
+    struct usbredirtransfer *transfer;
+
+    if (host->endpoint[EP2I(ep)].type != LIBUSB_TRANSFER_TYPE_INTERRUPT) {
+        ERROR("received start interrupt packet for non interrupt ep %02X", ep);
+        return usb_redir_inval;
+    }
+
+    if (!(ep & LIBUSB_ENDPOINT_IN)) {
+        ERROR("received start interrupt packet for non input ep %02X", ep);
+        return usb_redir_inval;
+    }
+
+    if (host->endpoint[EP2I(ep)].interrupt_in_transfer) {
+        ERROR("received interrupt start for already active ep %02X", ep);
+        return usb_redir_inval;
+    }
+
+    transfer = usbredirhost_alloc_transfer(host, 0);
+    if (!transfer) {
+        return usb_redir_ioerror;
+    }
+
+    buf_size = host->endpoint[EP2I(ep)].max_packetsize;
+    buffer = malloc(buf_size);
+    if (!buffer) {
+        ERROR("out of memory allocating interrupt buffer");
+        usbredirhost_free_transfer(transfer);
+        return usb_redir_ioerror;
+    }
+
+    libusb_fill_interrupt_transfer(transfer->transfer, host->handle, ep,
+        buffer, buf_size, usbredirhost_interrupt_packet_complete, transfer,
+        INTERRUPT_TIMEOUT);
+    host->endpoint[EP2I(ep)].interrupt_in_transfer = transfer;
+    return usb_redir_success;
+}
+
+static void usbredirhost_cancel_interrupt_in_transfer(
+    struct usbredirhost *host, uint8_t ep)
+{
+    struct usbredirtransfer *transfer;
+
+    transfer = host->endpoint[EP2I(ep)].interrupt_in_transfer;
+    if (!transfer)
+        return; /* Already stopped */
+
+    libusb_cancel_transfer(transfer->transfer);
+    /* Tell libusb to free the buffer and transfer when the
+       transfer has completed (or was successfully cancelled) */
+    transfer->transfer->flags = LIBUSB_TRANSFER_FREE_TRANSFER |
+                                LIBUSB_TRANSFER_FREE_BUFFER;
+    /* Let the completion handler know that our transfer struct
+       struct is gone / this packet is cancelled */
+    transfer->transfer->user_data = NULL;
+    /* Free our transfer struct (and only our struct) now */
+    free(transfer);
+}
+
 /**************************************************************************/
 
 static void usbredirhost_reset(void *priv, uint32_t id)
@@ -1049,8 +1224,16 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint32_t id,
     struct usb_redir_start_interrupt_receiving_header *start_interrupt_receiving)
 {
     struct usbredirhost *host = priv;
-    int i, status;
     uint8_t ep = start_interrupt_receiving->endpoint;
+    int status;
+
+    status = usbredirhost_alloc_interrupt_in_transfer(host, ep);
+    if (status != usb_redir_success) {
+        usbredirhost_send_interrupt_status(host, id, ep, usb_redir_stall);
+        return;
+    }
+    status = usbredirhost_submit_interrupt_in_transfer(host, ep);
+    usbredirhost_send_interrupt_status(host, id, ep, status);
 }
 
 static void usbredirhost_stop_interrupt_receiving(void *priv, uint32_t id,
@@ -1059,8 +1242,8 @@ static void usbredirhost_stop_interrupt_receiving(void *priv, uint32_t id,
     struct usbredirhost *host = priv;
     uint8_t ep = stop_interrupt_receiving->endpoint;
 
-//    usbredirhost_cancel_interrupt_receiving(host, ep, 1);
-//    usbredirhost_send_iso_status(host, id, ep, usb_redir_success);
+    usbredirhost_cancel_interrupt_in_transfer(host, ep);
+    usbredirhost_send_interrupt_status(host, id, ep, usb_redir_success);
 }
 
 static void usbredirhost_alloc_bulk_streams(void *priv, uint32_t id,
@@ -1074,6 +1257,8 @@ static void usbredirhost_free_bulk_streams(void *priv, uint32_t id,
 {
     /* struct usbredirhost *host = priv; */
 }
+
+/**************************************************************************/
 
 static void usbredirhost_cancel_data_packet(void *priv, uint32_t id)
 {
@@ -1463,7 +1648,9 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
     struct usbredirhost *host = priv;
     uint8_t ep = interrupt_packet->endpoint;
     struct usbredirtransfer *transfer;
-    int i, j, status;
+    int r;
+
+    DEBUG("interrupt submit ep %02X len %d", ep, interrupt_packet->length);
 
     if (host->endpoint[EP2I(ep)].type != LIBUSB_TRANSFER_TYPE_INTERRUPT) {
         ERROR("received interrupt packet for non interrupt ep %02X", ep);
@@ -1473,7 +1660,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
     }
 
     if (ep & LIBUSB_ENDPOINT_IN) {
-        ERROR("received interrupt out packet for interrupt input ep %02X", ep);
+        ERROR("received interrupt packet for interrupt input ep %02X", ep);
         usbredirhost_send_interrupt_status(host, id, ep, usb_redir_inval);
         free(data);
         return;
@@ -1486,5 +1673,50 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
         return;
     }
 
-    /* FIXME plenty */
+    if (data_len != interrupt_packet->length) {
+        ERROR("data len: %d != header len: %d for interrupt input ep %02X",
+              data_len, interrupt_packet->length, ep);
+        usbredirhost_send_interrupt_status(host, id, ep, usb_redir_inval);
+        free(data);
+        return;
+    }
+
+    if (usbredirparser_debug2 >= host->verbose) {
+        int i, j, n;
+
+        for (i = 0; i < data_len; i += j) {
+            char buf[128];
+
+            n = sprintf(buf, "interrupt data out:");
+            for (j = 0; j < 8 && i + j < data_len; j++){
+                 n += sprintf(buf + n, " %02x", data[i + j]);
+            }
+            va_log(host, usbredirparser_debug2, buf);
+        }
+    }
+
+    /* Note no memcpy, we can re-use the data buffer the parser
+       malloc-ed for us and expects us to free */
+
+    transfer = usbredirhost_alloc_transfer(host, 0);
+    if (!transfer) {
+        free(data);
+        return;
+    }
+
+    libusb_fill_interrupt_transfer(transfer->transfer, host->handle, ep,
+        data, data_len, usbredirhost_interrupt_packet_complete,
+        transfer, INTERRUPT_TIMEOUT);
+    transfer->id = id;
+    transfer->interrupt_packet = *interrupt_packet;
+
+    usbredirhost_add_transfer(host, transfer);
+
+    r = libusb_submit_transfer(transfer->transfer);
+    if (r < 0) {
+        ERROR("submitting interrupt transfer on ep %02X: %d", ep, r);
+        transfer->transfer->actual_length = 0;
+        transfer->transfer->status = r;
+        usbredirhost_interrupt_packet_complete(transfer->transfer);
+    }
 }
