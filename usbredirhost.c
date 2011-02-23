@@ -672,14 +672,18 @@ static void usbredirhost_iso_packet_complete(
     struct libusb_transfer *libusb_transfer)
 {
     struct usbredirtransfer *transfer = libusb_transfer->user_data;
-    struct usbredirhost *host = transfer->host;
     uint8_t ep = libusb_transfer->endpoint;
+    struct usbredirhost *host;
     int i, r, len, status;
+
+    if (!transfer)
+        return; /* Destroyed by cancel_iso_stream */
 
     /* Mark transfer completed (iow not submitted) */
     transfer->iso_packet_idx = 0;
 
     /* Check overal transfer status */
+    host = transfer->host;
     r = libusb_transfer->status;
     switch (usbredirhost_handle_iso_status(host, transfer->id, ep, r)) {
     case 0:
@@ -825,6 +829,9 @@ static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
                    transfer has completed (or was successfully cancelled) */
                 transfer->transfer->flags = LIBUSB_TRANSFER_FREE_TRANSFER |
                                             LIBUSB_TRANSFER_FREE_BUFFER;
+                /* Let the completion handler know that our transfer struct
+                   struct is gone / this packet is cancelled */
+                transfer->transfer->user_data = NULL;
                 /* Free our transfer struct (and only our struct) now */
                 free(transfer);
             } else {
