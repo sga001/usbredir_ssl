@@ -58,13 +58,13 @@ static void usbredirtestclient_iso_stream_status(void *priv, uint32_t id,
 static void usbredirtestclient_bulk_streams_status(void *priv, uint32_t id,
     struct usb_redir_bulk_streams_status_header *bulk_streams_status);
 static void usbredirtestclient_control_packet(void *priv, uint32_t id,
-    struct usb_redir_control_packet_header *control_header,
+    struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len);
 static void usbredirtestclient_bulk_packet(void *priv, uint32_t id,
-    struct usb_redir_bulk_packet_header *bulk_header,
+    struct usb_redir_bulk_packet_header *bulk_packet,
     uint8_t *data, int data_len);
 static void usbredirtestclient_iso_packet(void *priv, uint32_t id,
-    struct usb_redir_iso_packet_header *iso_header,
+    struct usb_redir_iso_packet_header *iso_packet,
     uint8_t *data, int data_len);
 
 /* id's for all the test commands we send */
@@ -306,14 +306,14 @@ static void usbredirtestclient_cmdline_help(void)
 
 static int usbredirtestclient_cmdline_ctrl(void)
 {
-    struct usb_redir_control_packet_header control_header;
+    struct usb_redir_control_packet_header control_packet;
     char *arg, *endptr = NULL;
     uint8_t *data = NULL;
     int data_len;
 
     arg = strtok(NULL, " \t\n");
     if (arg) {
-        control_header.endpoint = strtol(arg, &endptr, 0);
+        control_packet.endpoint = strtol(arg, &endptr, 0);
     }
     if (!arg || *endptr != '\0') {
         printf("Missing or invalid endpoint\n");
@@ -322,7 +322,7 @@ static int usbredirtestclient_cmdline_ctrl(void)
 
     arg = strtok(NULL, " \t\n");
     if (arg) {
-        control_header.request = strtol(arg, &endptr, 0);
+        control_packet.request = strtol(arg, &endptr, 0);
     }
     if (!arg || *endptr != '\0') {
         printf("Missing or invalid request\n");
@@ -331,7 +331,7 @@ static int usbredirtestclient_cmdline_ctrl(void)
 
     arg = strtok(NULL, " \t\n");
     if (arg) {
-        control_header.requesttype = strtol(arg, &endptr, 0);
+        control_packet.requesttype = strtol(arg, &endptr, 0);
     }
     if (!arg || *endptr != '\0') {
         printf("Missing or invalid request type\n");
@@ -340,7 +340,7 @@ static int usbredirtestclient_cmdline_ctrl(void)
 
     arg = strtok(NULL, " \t\n");
     if (arg) {
-        control_header.value = strtol(arg, &endptr, 0);
+        control_packet.value = strtol(arg, &endptr, 0);
     }
     if (!arg || *endptr != '\0') {
         printf("Missing or invalid value\n");
@@ -349,7 +349,7 @@ static int usbredirtestclient_cmdline_ctrl(void)
 
     arg = strtok(NULL, " \t\n");
     if (arg) {
-        control_header.index = strtol(arg, &endptr, 0);
+        control_packet.index = strtol(arg, &endptr, 0);
     }
     if (!arg || *endptr != '\0') {
         printf("Missing or invalid index\n");
@@ -358,17 +358,17 @@ static int usbredirtestclient_cmdline_ctrl(void)
 
     arg = strtok(NULL, " \t\n");
     if (arg) {
-        control_header.length = strtol(arg, &endptr, 0);
+        control_packet.length = strtol(arg, &endptr, 0);
     }
     if (!arg || *endptr != '\0') {
         printf("Missing or invalid length\n");
         return 0;
     }
 
-    if (!(control_header.endpoint & 0x80)) {    
+    if (!(control_packet.endpoint & 0x80)) {    
         int i;
 
-        data = malloc(control_header.length);
+        data = malloc(control_packet.length);
         if (!data) {
             fprintf(stderr, "Out of memory!\n");
             close(client_fd);
@@ -376,7 +376,7 @@ static int usbredirtestclient_cmdline_ctrl(void)
             return 0;
         }
 
-        for (i = 0; i < control_header.length; i++) {
+        for (i = 0; i < control_packet.length; i++) {
             arg = strtok(NULL, " \t\n");
             if (arg) {
                 data[i] = strtol(arg, &endptr, 0);
@@ -386,11 +386,11 @@ static int usbredirtestclient_cmdline_ctrl(void)
                 return 0;
             }
         }
-        data_len = control_header.length;
+        data_len = control_packet.length;
     } else {
         data_len = 0;
     }
-    usbredirparser_send_control_packet(parser, id, &control_header,
+    usbredirparser_send_control_packet(parser, id, &control_packet,
                                        data, data_len);
     printf("Send control packet with id: %u\n", id);
     id++;
@@ -533,11 +533,11 @@ static void usbredirtestclient_bulk_streams_status(void *priv, uint32_t id,
 }
 
 static void usbredirtestclient_control_packet(void *priv, uint32_t id,
-    struct usb_redir_control_packet_header *control_header,
+    struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len)
 {
     int i;
-    printf("Control packet id: %u, status: %d", id, control_header->status);
+    printf("Control packet id: %u, status: %d", id, control_packet->status);
 
     if (data_len) {
         printf(", data:");
@@ -552,13 +552,13 @@ static void usbredirtestclient_control_packet(void *priv, uint32_t id,
 }
 
 static void usbredirtestclient_bulk_packet(void *priv, uint32_t id,
-    struct usb_redir_bulk_packet_header *bulk_header,
+    struct usb_redir_bulk_packet_header *bulk_packet,
     uint8_t *data, int data_len)
 {
 }
 
 static void usbredirtestclient_iso_packet(void *priv, uint32_t id,
-    struct usb_redir_iso_packet_header *iso_header,
+    struct usb_redir_iso_packet_header *iso_packet,
     uint8_t *data, int data_len)
 {
 }
