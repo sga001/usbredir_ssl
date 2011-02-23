@@ -67,6 +67,12 @@ typedef void (*usbredirparser_stop_iso_stream)(void *priv,
     uint32_t id, struct usb_redir_stop_iso_stream_header *stop_iso_stream);
 typedef void (*usbredirparser_iso_stream_status)(void *priv,
     uint32_t id, struct usb_redir_iso_stream_status_header *iso_stream_status);
+typedef void (*usbredirparser_start_interrupt_receiving)(void *priv,
+    uint32_t id, struct usb_redir_start_interrupt_receiving_header *start_interrupt_receiving);
+typedef void (*usbredirparser_stop_interrupt_receiving)(void *priv,
+    uint32_t id, struct usb_redir_stop_interrupt_receiving_header *stop_interrupt_receiving);
+typedef void (*usbredirparser_interrupt_receiving_status)(void *priv,
+    uint32_t id, struct usb_redir_interrupt_receiving_status_header *interrupt_receiving_status);
 typedef void (*usbredirparser_alloc_bulk_streams)(void *priv,
     uint32_t id, struct usb_redir_alloc_bulk_streams_header *alloc_bulk_streams);
 typedef void (*usbredirparser_free_bulk_streams)(void *priv,
@@ -86,6 +92,9 @@ typedef void (*usbredirparser_bulk_packet)(void *priv,
     uint8_t *data, int data_len);
 typedef void (*usbredirparser_iso_packet)(void *priv,
     uint32_t id, struct usb_redir_iso_packet_header *iso_header,
+    uint8_t *data, int data_len);
+typedef void (*usbredirparser_interrupt_packet)(void *priv,
+    uint32_t id, struct usb_redir_interrupt_packet_header *interrupt_header,
     uint8_t *data, int data_len);
 
 /* Allocate a usbredirparser and set all the callbacks it needs */
@@ -110,6 +119,9 @@ struct usbredirparser *usbredirparser_create(
     usbredirparser_start_iso_stream start_iso_stream_func,
     usbredirparser_stop_iso_stream stop_iso_stream_func,
     usbredirparser_iso_stream_status iso_stream_status_func,
+    usbredirparser_start_interrupt_receiving start_interrupt_receiving_func,
+    usbredirparser_stop_interrupt_receiving stop_interrupt_receiving_func,
+    usbredirparser_interrupt_receiving_status interrupt_receiving_status_func,
     usbredirparser_alloc_bulk_streams alloc_bulk_streams_func,
     usbredirparser_free_bulk_streams free_bulk_streams_func,
     usbredirparser_bulk_streams_status bulk_streams_status_func,
@@ -117,6 +129,7 @@ struct usbredirparser *usbredirparser_create(
     usbredirparser_control_packet control_packet_func,
     usbredirparser_bulk_packet bulk_packet_func,
     usbredirparser_iso_packet iso_packet_func,
+    usbredirparser_interrupt_packet interrupt_packet_func,
     void *func_priv,
     const char *version, uint32_t *caps, int caps_len, int flags);
 
@@ -182,6 +195,15 @@ void usbredirparser_send_stop_iso_stream(struct usbredirparser *parser,
 void usbredirparser_send_iso_stream_status(struct usbredirparser *parser,
     uint32_t id,
     struct usb_redir_iso_stream_status_header *iso_stream_status);
+void usbredirparser_send_start_interrupt_receiving(struct usbredirparser *parser,
+    uint32_t id,
+    struct usb_redir_start_interrupt_receiving_header *start_interrupt_receiving);
+void usbredirparser_send_stop_interrupt_receiving(struct usbredirparser *parser,
+    uint32_t id,
+    struct usb_redir_stop_interrupt_receiving_header *stop_interrupt_receiving);
+void usbredirparser_send_interrupt_receiving_status(struct usbredirparser *parser,
+    uint32_t id,
+    struct usb_redir_interrupt_receiving_status_header *interrupt_receiving_status);
 void usbredirparser_send_alloc_bulk_streams(struct usbredirparser *parser,
     uint32_t id,
     struct usb_redir_alloc_bulk_streams_header *alloc_bulk_streams);
@@ -205,6 +227,10 @@ void usbredirparser_send_bulk_packet(struct usbredirparser *parser,
 void usbredirparser_send_iso_packet(struct usbredirparser *parser,
     uint32_t id,
     struct usb_redir_iso_packet_header *iso_header,
+    uint8_t *data, int data_len);
+void usbredirparser_send_interrupt_packet(struct usbredirparser *parser,
+    uint32_t id,
+    struct usb_redir_interrupt_packet_header *interrupt_header,
     uint8_t *data, int data_len);
 
 #endif

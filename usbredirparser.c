@@ -49,6 +49,9 @@ struct usbredirparser {
     usbredirparser_start_iso_stream start_iso_stream_func;
     usbredirparser_stop_iso_stream stop_iso_stream_func;
     usbredirparser_iso_stream_status iso_stream_status_func;
+    usbredirparser_start_interrupt_receiving start_interrupt_receiving_func;
+    usbredirparser_stop_interrupt_receiving stop_interrupt_receiving_func;
+    usbredirparser_interrupt_receiving_status interrupt_receiving_status_func;
     usbredirparser_alloc_bulk_streams alloc_bulk_streams_func;
     usbredirparser_free_bulk_streams free_bulk_streams_func;
     usbredirparser_bulk_streams_status bulk_streams_status_func;
@@ -56,6 +59,7 @@ struct usbredirparser {
     usbredirparser_control_packet control_packet_func;
     usbredirparser_bulk_packet bulk_packet_func;
     usbredirparser_iso_packet iso_packet_func;
+    usbredirparser_interrupt_packet interrupt_packet_func;
     void *func_priv;
     int flags;
 
@@ -114,6 +118,9 @@ struct usbredirparser *usbredirparser_create(
     usbredirparser_start_iso_stream start_iso_stream_func,
     usbredirparser_stop_iso_stream stop_iso_stream_func,
     usbredirparser_iso_stream_status iso_stream_status_func,
+    usbredirparser_start_interrupt_receiving start_interrupt_receiving_func,
+    usbredirparser_stop_interrupt_receiving stop_interrupt_receiving_func,
+    usbredirparser_interrupt_receiving_status interrupt_receiving_status_func,
     usbredirparser_alloc_bulk_streams alloc_bulk_streams_func,
     usbredirparser_free_bulk_streams free_bulk_streams_func,
     usbredirparser_bulk_streams_status bulk_streams_status_func,
@@ -121,6 +128,7 @@ struct usbredirparser *usbredirparser_create(
     usbredirparser_control_packet control_packet_func,
     usbredirparser_bulk_packet bulk_packet_func,
     usbredirparser_iso_packet iso_packet_func,
+    usbredirparser_interrupt_packet interrupt_packet_func,
     void *func_priv,
     const char *version, uint32_t *caps, int caps_len, int flags)
 {
@@ -150,6 +158,9 @@ struct usbredirparser *usbredirparser_create(
     parser->start_iso_stream_func = start_iso_stream_func;
     parser->stop_iso_stream_func = stop_iso_stream_func;
     parser->iso_stream_status_func = iso_stream_status_func;
+    parser->start_interrupt_receiving_func = start_interrupt_receiving_func;
+    parser->stop_interrupt_receiving_func = stop_interrupt_receiving_func;
+    parser->interrupt_receiving_status_func = interrupt_receiving_status_func;
     parser->alloc_bulk_streams_func = alloc_bulk_streams_func;
     parser->free_bulk_streams_func = free_bulk_streams_func;
     parser->bulk_streams_status_func = bulk_streams_status_func;
@@ -157,6 +168,7 @@ struct usbredirparser *usbredirparser_create(
     parser->control_packet_func = control_packet_func;
     parser->bulk_packet_func = bulk_packet_func;
     parser->iso_packet_func = iso_packet_func;
+    parser->interrupt_packet_func = interrupt_packet_func;
     parser->func_priv = func_priv;
     parser->flags = flags;
 
@@ -315,6 +327,24 @@ static int usbredirparser_get_type_header_len(struct usbredirparser *parser,
         } else {
             return -1;
         }
+    case usb_redir_start_interrupt_receiving:
+        if (command_for_host) {
+            return sizeof(struct usb_redir_start_interrupt_receiving_header);
+        } else {
+            return -1;
+        }
+    case usb_redir_stop_interrupt_receiving:
+        if (command_for_host) {
+            return sizeof(struct usb_redir_stop_interrupt_receiving_header);
+        } else {
+            return -1;
+        }
+    case usb_redir_interrupt_receiving_status:
+        if (!command_for_host) {
+            return sizeof(struct usb_redir_interrupt_receiving_status_header);
+        } else {
+            return -1;
+        }
     case usb_redir_alloc_bulk_streams:
         if (command_for_host) {
             return sizeof(struct usb_redir_alloc_bulk_streams_header);
@@ -345,6 +375,8 @@ static int usbredirparser_get_type_header_len(struct usbredirparser *parser,
         return sizeof(struct usb_redir_bulk_packet_header);
     case usb_redir_iso_packet:
         return sizeof(struct usb_redir_iso_packet_header);
+    case usb_redir_interrupt_packet:
+        return sizeof(struct usb_redir_interrupt_packet_header);
     default:
         return -1;
     }
@@ -357,6 +389,7 @@ static int usbredirparser_expect_extra_data(struct usbredirparser *parser)
     case usb_redir_control_packet:
     case usb_redir_bulk_packet:
     case usb_redir_iso_packet:
+    case usb_redir_interrupt_packet:
         return 1;
     default:
         return 0;
@@ -421,6 +454,18 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser)
         parser->iso_stream_status_func(parser->func_priv, parser->header.id,
             (struct usb_redir_iso_stream_status_header *)parser->type_header);
         break;
+    case usb_redir_start_interrupt_receiving:
+        parser->start_interrupt_receiving_func(parser->func_priv, parser->header.id,
+            (struct usb_redir_start_interrupt_receiving_header *)parser->type_header);
+        break;
+    case usb_redir_stop_interrupt_receiving:
+        parser->stop_interrupt_receiving_func(parser->func_priv, parser->header.id,
+            (struct usb_redir_stop_interrupt_receiving_header *)parser->type_header);
+        break;
+    case usb_redir_interrupt_receiving_status:
+        parser->interrupt_receiving_status_func(parser->func_priv, parser->header.id,
+            (struct usb_redir_interrupt_receiving_status_header *)parser->type_header);
+        break;
     case usb_redir_alloc_bulk_streams:
         parser->alloc_bulk_streams_func(parser->func_priv, parser->header.id,
             (struct usb_redir_alloc_bulk_streams_header *)parser->type_header);
@@ -449,6 +494,11 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser)
     case usb_redir_iso_packet:
         parser->iso_packet_func(parser->func_priv, parser->header.id,
             (struct usb_redir_iso_packet_header *)parser->type_header,
+            parser->data, parser->data_len);
+        break;
+    case usb_redir_interrupt_packet:
+        parser->interrupt_packet_func(parser->func_priv, parser->header.id,
+            (struct usb_redir_interrupt_packet_header *)parser->type_header,
             parser->data, parser->data_len);
         break;
     }
@@ -718,6 +768,30 @@ void usbredirparser_send_iso_stream_status(struct usbredirparser *parser,
                          iso_stream_status, NULL, 0);
 }
 
+void usbredirparser_send_start_interrupt_receiving(struct usbredirparser *parser,
+    uint32_t id,
+    struct usb_redir_start_interrupt_receiving_header *start_interrupt_receiving)
+{
+    usbredirparser_queue(parser, usb_redir_start_interrupt_receiving, id,
+                         start_interrupt_receiving, NULL, 0);
+}
+
+void usbredirparser_send_stop_interrupt_receiving(struct usbredirparser *parser,
+    uint32_t id,
+    struct usb_redir_stop_interrupt_receiving_header *stop_interrupt_receiving)
+{
+    usbredirparser_queue(parser, usb_redir_stop_interrupt_receiving, id,
+                         stop_interrupt_receiving, NULL, 0);
+}
+
+void usbredirparser_send_interrupt_receiving_status(struct usbredirparser *parser,
+    uint32_t id,
+    struct usb_redir_interrupt_receiving_status_header *interrupt_receiving_status)
+{
+    usbredirparser_queue(parser, usb_redir_interrupt_receiving_status, id,
+                         interrupt_receiving_status, NULL, 0);
+}
+
 void usbredirparser_send_alloc_bulk_streams(struct usbredirparser *parser,
     uint32_t id,
     struct usb_redir_alloc_bulk_streams_header *alloc_bulk_streams)
@@ -775,4 +849,13 @@ void usbredirparser_send_iso_packet(struct usbredirparser *parser,
 {
     usbredirparser_queue(parser, usb_redir_iso_packet, id, iso_header,
                          data, data_len);
+}
+
+void usbredirparser_send_interrupt_packet(struct usbredirparser *parser,
+    uint32_t id,
+    struct usb_redir_interrupt_packet_header *interrupt_header,
+    uint8_t *data, int data_len)
+{
+    usbredirparser_queue(parser, usb_redir_interrupt_packet, id,
+                         interrupt_header, data, data_len);
 }

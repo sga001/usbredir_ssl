@@ -55,6 +55,8 @@ static void usbredirtestclient_alt_setting_status(void *priv, uint32_t id,
     struct usb_redir_alt_setting_status_header *alt_setting_status);
 static void usbredirtestclient_iso_stream_status(void *priv, uint32_t id,
     struct usb_redir_iso_stream_status_header *iso_stream_status);
+static void usbredirtestclient_interrupt_receiving_status(void *priv, uint32_t id,
+    struct usb_redir_interrupt_receiving_status_header *interrupt_receiving_status);
 static void usbredirtestclient_bulk_streams_status(void *priv, uint32_t id,
     struct usb_redir_bulk_streams_status_header *bulk_streams_status);
 static void usbredirtestclient_control_packet(void *priv, uint32_t id,
@@ -65,6 +67,9 @@ static void usbredirtestclient_bulk_packet(void *priv, uint32_t id,
     uint8_t *data, int data_len);
 static void usbredirtestclient_iso_packet(void *priv, uint32_t id,
     struct usb_redir_iso_packet_header *iso_packet,
+    uint8_t *data, int data_len);
+static void usbredirtestclient_interrupt_packet(void *priv, uint32_t id,
+    struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len);
 
 /* id's for all the test commands we send */
@@ -275,6 +280,9 @@ int main(int argc, char *argv[])
                                    NULL, /* start iso */
                                    NULL, /* stop iso */
                                    usbredirtestclient_iso_stream_status,
+                                   NULL, /* start interrupt receiving */
+                                   NULL, /* stop interrupt receiving */
+                                   usbredirtestclient_interrupt_receiving_status,
                                    NULL, /* alloc bulk streams */
                                    NULL, /* free bulk streams */
                                    usbredirtestclient_bulk_streams_status,
@@ -282,6 +290,7 @@ int main(int argc, char *argv[])
                                    usbredirtestclient_control_packet,
                                    usbredirtestclient_bulk_packet,
                                    usbredirtestclient_iso_packet,
+                                   usbredirtestclient_interrupt_packet,
                                    NULL, VERSION, NULL, 0, 0);
     if (!parser) {
         exit(1);
@@ -527,6 +536,11 @@ static void usbredirtestclient_iso_stream_status(void *priv, uint32_t id,
 {
 }
 
+static void usbredirtestclient_interrupt_receiving_status(void *priv, uint32_t id,
+    struct usb_redir_interrupt_receiving_status_header *interrupt_receiving_status)
+{
+}
+
 static void usbredirtestclient_bulk_streams_status(void *priv, uint32_t id,
     struct usb_redir_bulk_streams_status_header *bulk_streams_status)
 {
@@ -559,6 +573,12 @@ static void usbredirtestclient_bulk_packet(void *priv, uint32_t id,
 
 static void usbredirtestclient_iso_packet(void *priv, uint32_t id,
     struct usb_redir_iso_packet_header *iso_packet,
+    uint8_t *data, int data_len)
+{
+}
+
+static void usbredirtestclient_interrupt_packet(void *priv, uint32_t id,
+    struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len)
 {
 }
