@@ -24,6 +24,11 @@ Version 0.3
 -Add a usb_redir_ep_info packet
 -Report usb_redir_stall as iso status error to indicate a stream stop
 -Add a usb_redir_device_info packet
+-Add support for interrupt transfers, add the following packets:
+ usb_redir_start_interrupt_receiving
+ usb_redir_stop_interrupt_receiving
+ usb_redir_interrupt_receiving_status
+ usb_redir_interrupt_packet
 
 
 USB redirerection protocol (draft)
@@ -110,6 +115,9 @@ usb_redir_alt_setting_status
 usb_redir_start_iso_stream
 usb_redir_stop_iso_stream
 usb_redir_iso_stream_status
+usb_redir_start_interrupt_receiving
+usb_redir_stop_interrupt_receiving
+usb_redir_interrupt_receiving_status
 usb_redir_alloc_bulk_streams
 usb_redir_free_bulk_streams
 usb_redir_bulk_streams_status
@@ -119,6 +127,7 @@ data packets:
 usb_redir_control_packet
 usb_redir_bulk_packet
 usb_redir_iso_packet
+usb_redir_interrupt_packet
 
 
 usb_redir_hello
@@ -360,7 +369,7 @@ usb_redir_header.length:  sizeof(struct usb_redir_start_iso_stream_header)
 
 struct usb_redir_stop_iso_stream_header {
     uint8_t endpoint;
-};
+}
 
 No packet type specific additional data.
 
@@ -395,6 +404,73 @@ error with an iso output stream, see usb_redir_iso_packet.
 To allow the usb-guest to detect if the stream was adversely stopped, the
 usb-host will always report usb_redir_stall as status if the stream was
 stopped for any reason other then an usb_redir_stop_iso_stream.
+
+
+usb_redir_start_interrupt_receiving
+-----------------------------------
+
+usb_redir_header.type:    usb_redir_start_interrupt_receiving
+usb_redir_header.length:  sizeof(usb_redir_start_interrupt_receiving_header)
+
+struct usb_redir_start_interrupt_receiving_header {
+    uint8_t endpoint;
+}
+
+No packet type specific additional data.
+
+This packet can be send by the usb-guest to start receiving interrupts
+from the designated endpoint of the usb-device.
+
+This function is for *input* interrupt endpoints only. Input interrupt
+endpoints need to be polled timely otherwise data may get lost. So for
+input interrupt endpoints the usb-host takes care of the submitting and
+re-submitting of urbs.
+
+On receiving this packet the usb-host will start an interrupt transfer
+to the endpoint using the interval and maxPacketSize from the descriptors.
+When this transfer completes, the usb-host will send an
+usb_redir_interrupt_packet to the usb-guest, and will re-submit the urb.
+
+usb_redir_stop_interrupt_receiving
+----------------------------------
+
+usb_redir_header.type:    usb_redir_stop_interrupt_receiving
+usb_redir_header.length:  sizeof(struct usb_redir_start_interrupt_receiving_header)
+
+struct usb_redir_stop_interrupt_receiving_header {
+    uint8_t endpoint;
+}
+
+No packet type specific additional data.
+
+This packet can be send by the usb-guest to stop interrupt receiving on the
+designated endpoint. This will cancel the pending urb. Note that the usb-guest
+can still receive usb_redir_interrupt_packet-s after sending this, as
+some data packets may already be inside the transport pipe.
+
+usb_redir_interrupt_receiving_status
+------------------------------------
+
+usb_redir_header.type:    usb_redir_interrupt_receiving_status
+usb_redir_header.length:  sizeof(usb_redir_interrupt_receiving_status_header)
+
+struct usb_redir_interrupt_receiving_status_header {
+    uint8_t status;
+    uint8_t endpoint;
+}
+
+No packet type specific additional data.
+
+This packet is send by the usb-host in response to a
+usb_redir_start_interrupt_receiving or usb_redir_stop_interrupt_receiving
+packet.
+
+Note that this can also be send unsolicited by a usb-host in case of an
+error re-submitting the interrupt urb.
+
+To allow the usb-guest to detect if the stream was adversely stopped, the
+usb-host will always report usb_redir_stall as status if the stream was
+stopped for any reason other then an usb_redir_stop_interrupt_receiving.
 
 
 usb_redir_alloc_bulk_streams
@@ -566,3 +642,57 @@ usb_redir_header.id to the id of the corresponding received packet. So for
 usb_redir_iso_packet's the usb-host simply starts with an id of 0 and
 increments this every packet. Note that when the usb-host has recovered from
 a stall the id will restart at 0!
+
+
+usb_redir_interrupt_packet
+--------------------------
+
+usb_redir_header.type:    usb_redir_interrupt_packet
+usb_redir_header.length:  sizeof(usb_redir_interrupt_packet_header) [+ length]
+
+struct usb_redir_interrupt_packet_header {
+    uint8_t endpoint;
+    uint8_t status;
+    uint16_t length;
+}
+
+The additional data contains the interrupt msg data to be send / received.
+
+The handling of interrupt endpoints differs significantly depending on wether
+the endpoint is an input or output endpoint.
+
+Input endpoints:
+================
+
+Input interrupt endpoints need to
+be polled timely otherwise data may get lost. So for input interrupt endpoints
+the usb-host takes care of the submitting and re-submitting of urbs, the
+usb-guest can start / stop the receiving of interrupt packets using the
+usb_redir_start_interrupt_receiving / usb_redir_stop_interrupt_receiving
+packets. Note that for an input interrupt endpoint usb_redir_interrupt_packet-s
+are only send in one direction, from the usb-host to the usb-guest!
+
+Since usb_redir_interrupt_packet's are send unsolicited by the usb-host once
+interrupt receiving has started, the usb-host cannot set the
+usb_redir_header.id to the id of the corresponding received packet. So for
+usb_redir_interrupt_packet's the usb-host simply starts with an id of 0 and
+increments this every packet. Note that when the usb-host has recovered from
+a stall the id will restart at 0!
+
+Output endpoints:
+=================
+
+For interrupt output endpoints the normal asynchroneous mechanism also used
+for control and bulk transfers is used:
+
+The usb-guest sends a usb_redir_interrupt_packet to the usb-host. When the
+interrupt msg has been processed by the usb-device the usb-host sends
+a usb_redir_interrupt_packet back to the usb-guest, with the status field and
+length updated to match the actual results. This packet only has additional
+data (the data to output) when send from usb-guest to usb-host.
+
+Note that since unlike with iso data there is usually no notion of a stream
+with interrupt data, buffering makes no sense for output interrupt packets,
+instead they are delivered asap. Despite this asap delivery it is likely
+that the timing constraints which apply to interrupt output transfers will
+not be met. The consequences of this will vary from device to device.

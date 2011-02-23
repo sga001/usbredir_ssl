@@ -66,6 +66,9 @@ enum {
     usb_redir_start_iso_stream,
     usb_redir_stop_iso_stream,
     usb_redir_iso_stream_status,
+    usb_redir_start_interrupt_receiving,
+    usb_redir_stop_interrupt_receiving,
+    usb_redir_interrupt_receiving_status,
     usb_redir_alloc_bulk_streams,
     usb_redir_free_bulk_streams,
     usb_redir_bulk_streams_status,
@@ -74,6 +77,7 @@ enum {
     usb_redir_control_packet = 100,
     usb_redir_bulk_packet,
     usb_redir_iso_packet,
+    usb_redir_interrupt_packet,
 };
 
 enum {
@@ -146,6 +150,19 @@ struct usb_redir_iso_stream_status_header {
     uint8_t endpoint;
 };
 
+struct usb_redir_start_interrupt_receiving_header {
+    uint8_t endpoint;
+};
+
+struct usb_redir_stop_interrupt_receiving_header {
+    uint8_t endpoint;
+};
+
+struct usb_redir_interrupt_receiving_status_header {
+    uint8_t status;
+    uint8_t endpoint;
+};
+
 struct usb_redir_alloc_bulk_streams_header {
     uint8_t endpoint;
     uint8_t no_streams;
@@ -179,6 +196,12 @@ struct usb_redir_bulk_packet_header {
 };
 
 struct usb_redir_iso_packet_header {
+    uint8_t endpoint;
+    uint8_t status;
+    uint16_t length;
+};
+
+struct usb_redir_interrupt_packet_header {
     uint8_t endpoint;
     uint8_t status;
     uint16_t length;
