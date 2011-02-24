@@ -584,6 +584,24 @@ static int usbredirhost_bInterfaceNumber_to_index(
     return -1;
 }
 
+static void usbredirhost_log_data(struct usbredirhost *host, const char *desc,
+    const uint8_t *data, int len)
+{
+    if (usbredirparser_debug2 >= host->verbose) {
+        int i, j, n;
+
+        for (i = 0; i < len; i += j) {
+            char buf[128];
+
+            n = sprintf(buf, "%s", desc);
+            for (j = 0; j < 8 && i + j < len; j++){
+                 n += sprintf(buf + n, " %02x", data[i + j]);
+            }
+            va_log(host, usbredirparser_debug2, buf);
+        }
+    }
+}
+
 /**************************************************************************/
 
 static void usbredirhost_send_iso_status(struct usbredirhost *host,
@@ -913,21 +931,8 @@ static void usbredirhost_interrupt_packet_complete(
     }
 
     /* Everything below is for input endpoints */
-    if (usbredirparser_debug2 >= host->verbose) {
-        int i, j, n;
-        uint8_t *data = libusb_transfer->buffer;
-
-        for (i = 0; i < len; i += j) {
-            char buf[128];
-
-            n = sprintf(buf, "interrupt data in:");
-            for (j = 0; j < 8 && i + j < len; j++){
-                 n += sprintf(buf + n, " %02x", data[i + j]);
-            }
-            va_log(host, usbredirparser_debug2, buf);
-        }
-    }
-
+    usbredirhost_log_data(host, "interrupt data in:",
+                          libusb_transfer->buffer, len);
     r = libusb_transfer->status;
     switch (r) {
     case LIBUSB_TRANSFER_COMPLETED:
@@ -1287,21 +1292,9 @@ static void usbredirhost_control_packet_complete(
     control_packet.length = libusb_transfer->actual_length;
 
     if (control_packet.endpoint & LIBUSB_ENDPOINT_IN) {
-        if (usbredirparser_debug2 >= host->verbose) {
-            int i, j, n, len = libusb_transfer->actual_length;
-            uint8_t *data =
-                libusb_transfer->buffer + LIBUSB_CONTROL_SETUP_SIZE;
-
-            for (i = 0; i < len; i += j) {
-                char buf[128];
-
-                n = sprintf(buf, "ctrl data:");
-                for (j = 0; j < 8 && i + j < len; j++){
-                     n += sprintf(buf + n, " %02x", data[i + j]);
-                }
-                va_log(host, usbredirparser_debug2, buf);
-            }
-        }
+        usbredirhost_log_data(host, "ctrl data in:",
+                         libusb_transfer->buffer + LIBUSB_CONTROL_SETUP_SIZE,
+                         libusb_transfer->actual_length);
         usbredirparser_send_control_packet(host->parser, transfer->id,
                                            &control_packet,
                                            libusb_transfer->buffer +
@@ -1382,19 +1375,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
                               control_packet->length);
 
     if (!(ep & LIBUSB_ENDPOINT_IN)) {
-        if (usbredirparser_debug2 >= host->verbose) {
-            int i, j, n;
-
-            for (i = 0; i < data_len; i += j) {
-                char buf[128];
-
-                n = sprintf(buf, "ctrl data:");
-                for (j = 0; j < 8 && i + j < data_len; j++){
-                     n += sprintf(buf + n, " %02x", data[i + j]);
-                }
-                va_log(host, usbredirparser_debug2, buf);
-            }
-        }
+        usbredirhost_log_data(host, "ctrl data out:", data, data_len);
         memcpy(buffer + LIBUSB_CONTROL_SETUP_SIZE, data, data_len);
         free(data);
     }
@@ -1432,20 +1413,9 @@ static void usbredirhost_bulk_packet_complete(
           bulk_packet.status, bulk_packet.length);
 
     if (bulk_packet.endpoint & LIBUSB_ENDPOINT_IN) {
-        if (usbredirparser_debug2 >= host->verbose) {
-            int i, j, n, len = libusb_transfer->actual_length;
-            uint8_t *data = libusb_transfer->buffer;
-
-            for (i = 0; i < len; i += j) {
-                char buf[128];
-
-                n = sprintf(buf, "bulk data:");
-                for (j = 0; j < 8 && i + j < len; j++){
-                     n += sprintf(buf + n, " %02x", data[i + j]);
-                }
-                va_log(host, usbredirparser_debug2, buf);
-            }
-        }
+        usbredirhost_log_data(host, "bulk data in:",
+                              libusb_transfer->buffer,
+                              libusb_transfer->actual_length);
         usbredirparser_send_bulk_packet(host->parser, transfer->id,
                                         &bulk_packet,
                                         libusb_transfer->buffer,
@@ -1505,19 +1475,7 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
             free(data);
             return;
         }
-        if (usbredirparser_debug2 >= host->verbose) {
-            int i, j, n;
-
-            for (i = 0; i < data_len; i += j) {
-                char buf[128];
-
-                n = sprintf(buf, "bulk data:");
-                for (j = 0; j < 8 && i + j < data_len; j++){
-                     n += sprintf(buf + n, " %02x", data[i + j]);
-                }
-                va_log(host, usbredirparser_debug2, buf);
-            }
-        }
+        usbredirhost_log_data(host, "bulk data out:", data, data_len);
         /* Note no memcpy, we can re-use the data buffer the parser
            malloc-ed for us and expects us to free */
     }
@@ -1681,19 +1639,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
         return;
     }
 
-    if (usbredirparser_debug2 >= host->verbose) {
-        int i, j, n;
-
-        for (i = 0; i < data_len; i += j) {
-            char buf[128];
-
-            n = sprintf(buf, "interrupt data out:");
-            for (j = 0; j < 8 && i + j < data_len; j++){
-                 n += sprintf(buf + n, " %02x", data[i + j]);
-            }
-            va_log(host, usbredirparser_debug2, buf);
-        }
-    }
+    usbredirhost_log_data(host, "interrupt data out:", data, data_len);
 
     /* Note no memcpy, we can re-use the data buffer the parser
        malloc-ed for us and expects us to free */
