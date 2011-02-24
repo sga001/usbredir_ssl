@@ -1307,6 +1307,15 @@ static void usbredirhost_control_packet_complete(
     usbredirhost_remove_and_free_transfer(transfer);
 }
 
+static void usbredirhost_send_control_inval(struct usbredirhost *host,
+    uint32_t id, struct usb_redir_control_packet_header *control_packet)
+{
+    control_packet->status = usb_redir_inval;
+    control_packet->length = 0;
+    usbredirparser_send_control_packet(host->parser, id, control_packet,
+                                       NULL, 0);
+}
+
 static void usbredirhost_control_packet(void *priv, uint32_t id,
     struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len)
@@ -1320,10 +1329,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     /* Verify endpoint type */
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_control) {
         ERROR("control packet on non control ep %02X", ep);
-        control_packet->status = usb_redir_inval;
-        control_packet->length = 0;
-        usbredirparser_send_control_packet(host->parser, id, 
-                                           control_packet, NULL, 0);
+        usbredirhost_send_control_inval(host, id, control_packet);
         free(data);
         return;
     }
@@ -1332,10 +1338,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     if (ep & LIBUSB_ENDPOINT_IN) {
         if (data || data_len) {
             ERROR("data len non zero for control input packet");
-            control_packet->status = usb_redir_inval;
-            control_packet->length = 0;
-            usbredirparser_send_control_packet(host->parser, id, 
-                                               control_packet, NULL, 0);
+            usbredirhost_send_control_inval(host, id, control_packet);
             free(data);
             return;
         }
@@ -1343,10 +1346,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
         if (data_len != control_packet->length) {
             ERROR("data len: %d != header len: %d for control packet",
                   data_len, control_packet->length);
-            control_packet->status = usb_redir_inval;
-            control_packet->length = 0;
-            usbredirparser_send_control_packet(host->parser, id,
-                                               control_packet, NULL, 0);
+            usbredirhost_send_control_inval(host, id, control_packet);
             free(data);
             return;
         }
@@ -1427,6 +1427,14 @@ static void usbredirhost_bulk_packet_complete(
     usbredirhost_remove_and_free_transfer(transfer);
 }
 
+static void usbredirhost_send_bulk_inval(struct usbredirhost *host,
+    uint32_t id, struct usb_redir_bulk_packet_header *bulk_packet)
+{
+    bulk_packet->status = usb_redir_inval;
+    bulk_packet->length = 0;
+    usbredirparser_send_bulk_packet(host->parser, id, bulk_packet, NULL, 0);
+}
+
 static void usbredirhost_bulk_packet(void *priv, uint32_t id,
     struct usb_redir_bulk_packet_header *bulk_packet,
     uint8_t *data, int data_len)
@@ -1440,10 +1448,7 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_bulk) {
         ERROR("bulk packet on non bulk ep %02X", ep);
-        bulk_packet->status = usb_redir_inval;
-        bulk_packet->length = 0;
-        usbredirparser_send_bulk_packet(host->parser, id, 
-                                        bulk_packet, NULL, 0);
+        usbredirhost_send_bulk_inval(host, id, bulk_packet);
         free(data);
         return;
     }
@@ -1451,10 +1456,7 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
     if (ep & LIBUSB_ENDPOINT_IN) {
         if (data || data_len) {
             ERROR("data len non zero for bulk input packet");
-            bulk_packet->status = usb_redir_inval;
-            bulk_packet->length = 0;
-            usbredirparser_send_bulk_packet(host->parser, id, 
-                                            bulk_packet, NULL, 0);
+            usbredirhost_send_bulk_inval(host, id, bulk_packet);
             free(data);
             return;
         }
@@ -1467,10 +1469,7 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
         if (data_len != bulk_packet->length) {
             ERROR("data len: %d != header len: %d for bulk packet",
                   data_len, bulk_packet->length);
-            bulk_packet->status = usb_redir_inval;
-            bulk_packet->length = 0;
-            usbredirparser_send_bulk_packet(host->parser, id,
-                                            bulk_packet, NULL, 0);
+            usbredirhost_send_bulk_inval(host, id, bulk_packet);
             free(data);
             return;
         }
