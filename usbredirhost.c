@@ -785,7 +785,7 @@ static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
     int i, buf_size;
     unsigned char *buffer;
 
-    if (host->endpoint[EP2I(ep)].type != LIBUSB_TRANSFER_TYPE_ISOCHRONOUS) {
+    if (host->endpoint[EP2I(ep)].type != usb_redir_type_iso) {
         ERROR("start iso stream on non iso endpoint");
         return usb_redir_inval;
     }
@@ -985,7 +985,7 @@ static int usbredirhost_alloc_interrupt_in_transfer(struct usbredirhost *host,
     unsigned char *buffer;
     struct usbredirtransfer *transfer;
 
-    if (host->endpoint[EP2I(ep)].type != LIBUSB_TRANSFER_TYPE_INTERRUPT) {
+    if (host->endpoint[EP2I(ep)].type != usb_redir_type_interrupt) {
         ERROR("received start interrupt packet for non interrupt ep %02X", ep);
         return usb_redir_inval;
     }
@@ -1073,7 +1073,7 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
     }
 
     for (i = 0; i < MAX_ENDPOINTS; i++) {
-        if (host->endpoint[i].type == LIBUSB_TRANSFER_TYPE_ISOCHRONOUS) {
+        if (host->endpoint[i].type == usb_redir_type_iso) {
             usbredirhost_cancel_iso_stream(host, I2EP(i), 1);
         }
     }
@@ -1131,7 +1131,7 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
     intf_desc = &host->config->interface[i].altsetting[host->alt_setting[i]];
     for (j = 0; j < intf_desc->bNumEndpoints; j++) {
         uint8_t ep = intf_desc->endpoint[j].bEndpointAddress;
-        if (host->endpoint[EP2I(ep)].type == LIBUSB_TRANSFER_TYPE_ISOCHRONOUS) {
+        if (host->endpoint[EP2I(ep)].type == usb_redir_type_iso) {
             usbredirhost_cancel_iso_stream(host, ep, 1);
         } else {
             usbredirhost_cancel_pending_urbs_on_ep(host, ep);
@@ -1513,7 +1513,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     struct usbredirtransfer *transfer;
     int i, j, status;
 
-    if (host->endpoint[EP2I(ep)].type != LIBUSB_TRANSFER_TYPE_ISOCHRONOUS) {
+    if (host->endpoint[EP2I(ep)].type != usb_redir_type_iso) {
         ERROR("received iso packet for non iso ep %02X", ep);
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
         free(data);
@@ -1610,7 +1610,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
 
     DEBUG("interrupt submit ep %02X len %d", ep, interrupt_packet->length);
 
-    if (host->endpoint[EP2I(ep)].type != LIBUSB_TRANSFER_TYPE_INTERRUPT) {
+    if (host->endpoint[EP2I(ep)].type != usb_redir_type_interrupt) {
         ERROR("received interrupt packet for non interrupt ep %02X", ep);
         usbredirhost_send_interrupt_status(host, id, ep, usb_redir_inval);
         free(data);
