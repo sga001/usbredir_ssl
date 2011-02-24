@@ -798,6 +798,11 @@ static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
         return usb_redir_inval;
     }
 
+    if (host->endpoint[EP2I(ep)].iso_transfer_count) {
+        ERROR("received iso start for already started iso stream");
+        return usb_redir_inval;
+    }
+
     for (i = 0; i < transfer_count; i++) {
         host->endpoint[EP2I(ep)].iso_transfer[i] =
             usbredirhost_alloc_transfer(host, pkts_per_transfer);
@@ -1184,12 +1189,6 @@ static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
     struct usbredirhost *host = priv;
     int i, status;
     uint8_t ep = start_iso_stream->endpoint;
-
-    if (host->endpoint[EP2I(ep)].iso_transfer_count) {
-        ERROR("received iso start for already started iso stream");
-        usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
-        return;
-    }
 
     status = usbredirhost_alloc_iso_stream(host, ep,
                    start_iso_stream->pkts_per_urb, start_iso_stream->no_urbs);
