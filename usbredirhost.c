@@ -30,7 +30,7 @@
 #define CTRL_TIMEOUT       5000 /* USB specifies a 5 second max timeout */
 #define BULK_TIMEOUT       5000
 #define ISO_TIMEOUT        1000
-#define INTERRUPT_TIMEOUT  1000
+#define INTERRUPT_TIMEOUT     0 /* No timeout for interrupt transfers */
 
 #define MAX_ISO_TRANSFER_COUNT       16
 #define MAX_ISO_PACKETS_PER_TRANSFER 32
