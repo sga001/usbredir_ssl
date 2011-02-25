@@ -1597,6 +1597,15 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     }
 }
 
+static void usbredirhost_send_interrupt_inval(struct usbredirhost *host,
+    uint32_t id, struct usb_redir_interrupt_packet_header *interrupt_packet)
+{
+    interrupt_packet->status = usb_redir_inval;
+    interrupt_packet->length = 0;
+    usbredirparser_send_interrupt_packet(host->parser, id, interrupt_packet,
+                                         NULL, 0);
+}
+
 static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
     struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len)
@@ -1610,21 +1619,21 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_interrupt) {
         ERROR("received interrupt packet for non interrupt ep %02X", ep);
-        usbredirhost_send_interrupt_status(host, id, ep, usb_redir_inval);
+        usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
         free(data);
         return;
     }
 
     if (ep & LIBUSB_ENDPOINT_IN) {
         ERROR("received interrupt packet for interrupt input ep %02X", ep);
-        usbredirhost_send_interrupt_status(host, id, ep, usb_redir_inval);
+        usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
         free(data);
         return;
     }
 
     if (data_len > host->endpoint[EP2I(ep)].max_packetsize) {
         ERROR("received interrupt out packet is larger than wMaxPacketSize");
-        usbredirhost_send_interrupt_status(host, id, ep, usb_redir_inval);
+        usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
         free(data);
         return;
     }
@@ -1632,7 +1641,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
     if (data_len != interrupt_packet->length) {
         ERROR("data len: %d != header len: %d for interrupt input ep %02X",
               data_len, interrupt_packet->length, ep);
-        usbredirhost_send_interrupt_status(host, id, ep, usb_redir_inval);
+        usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
         free(data);
         return;
     }
