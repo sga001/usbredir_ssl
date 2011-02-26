@@ -737,7 +737,7 @@ static void usbredirhost_iso_packet_complete(
         r   = libusb_transfer->iso_packet_desc[i].status;
         len = libusb_transfer->iso_packet_desc[i].actual_length;
         status = libusb_status_or_error_to_redir_status(host, r);
-        switch (!usbredirhost_handle_iso_status(host, transfer->id, ep, r)) {
+        switch (usbredirhost_handle_iso_status(host, transfer->id, ep, r)) {
         case 0:
             break;
         case 1:
