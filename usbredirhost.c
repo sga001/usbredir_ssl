@@ -1337,24 +1337,6 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
         return;
     }
 
-    /* Verify data_len */
-    if (ep & LIBUSB_ENDPOINT_IN) {
-        if (data || data_len) {
-            ERROR("data len non zero for control input packet");
-            usbredirhost_send_control_inval(host, id, control_packet);
-            free(data);
-            return;
-        }
-    } else {
-        if (data_len != control_packet->length) {
-            ERROR("data len: %d != header len: %d for control packet",
-                  data_len, control_packet->length);
-            usbredirhost_send_control_inval(host, id, control_packet);
-            free(data);
-            return;
-        }
-    }
-
     buffer = malloc(LIBUSB_CONTROL_SETUP_SIZE + control_packet->length);
     if (!buffer) {
         ERROR("out of memory allocating transfer buffer, dropping packet");
@@ -1457,25 +1439,12 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
     }
 
     if (ep & LIBUSB_ENDPOINT_IN) {
-        if (data || data_len) {
-            ERROR("data len non zero for bulk input packet");
-            usbredirhost_send_bulk_inval(host, id, bulk_packet);
-            free(data);
-            return;
-        }
         data = malloc(bulk_packet->length);
         if (!data) {
             ERROR("out of memory allocating bulk buffer, dropping packet");
             return;
         }
     } else {
-        if (data_len != bulk_packet->length) {
-            ERROR("data len: %d != header len: %d for bulk packet",
-                  data_len, bulk_packet->length);
-            usbredirhost_send_bulk_inval(host, id, bulk_packet);
-            free(data);
-            return;
-        }
         usbredirhost_log_data(host, "bulk data out:", data, data_len);
         /* Note no memcpy, we can re-use the data buffer the parser
            malloc-ed for us and expects us to free */
@@ -1516,13 +1485,6 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_iso) {
         ERROR("received iso packet for non iso ep %02X", ep);
-        usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
-        free(data);
-        return;
-    }
-
-    if (ep & LIBUSB_ENDPOINT_IN) {
-        ERROR("received iso out packet for iso input ep %02X", ep);
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
         free(data);
         return;
@@ -1627,23 +1589,8 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
         return;
     }
 
-    if (ep & LIBUSB_ENDPOINT_IN) {
-        ERROR("received interrupt packet for interrupt input ep %02X", ep);
-        usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
-        free(data);
-        return;
-    }
-
     if (data_len > host->endpoint[EP2I(ep)].max_packetsize) {
         ERROR("received interrupt out packet is larger than wMaxPacketSize");
-        usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
-        free(data);
-        return;
-    }
-
-    if (data_len != interrupt_packet->length) {
-        ERROR("data len: %d != header len: %d for interrupt input ep %02X",
-              data_len, interrupt_packet->length, ep);
         usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
         free(data);
         return;

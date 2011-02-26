@@ -382,6 +382,9 @@ static int usbredirparser_get_type_header_len(struct usbredirparser *parser,
     }
 }
 
+/* Note this function only checks if extra data is allowed for the
+   packet type being read at all, a check if it is actually allowed
+   given the direction of the packet + ep is done in _erify_type_header */
 static int usbredirparser_expect_extra_data(struct usbredirparser *parser)
 {
     switch (parser->header.type) {
@@ -394,6 +397,71 @@ static int usbredirparser_expect_extra_data(struct usbredirparser *parser)
     default:
         return 0;
     }
+}
+
+static int usbredirparser_verify_type_header(struct usbredirparser *parser,
+    int32_t type, void *header, uint8_t *data, int data_len, int send)
+{
+    int command_for_host = 0, expect_extra_data = 0;
+    int length = 0, ep = -1;
+
+    if (parser->flags & usbredirparser_fl_usb_host) {
+        command_for_host = 1;
+    }
+    if (send) {
+        command_for_host = !command_for_host;
+    }
+
+    switch (type) {
+    case usb_redir_control_packet:
+        length = ((struct usb_redir_control_packet_header *)header)->length;
+        ep = ((struct usb_redir_control_packet_header *)header)->endpoint;
+        break;
+    case usb_redir_bulk_packet:
+        length = ((struct usb_redir_bulk_packet_header *)header)->length;
+        ep = ((struct usb_redir_bulk_packet_header *)header)->endpoint;
+        break;
+    case usb_redir_iso_packet:
+        length = ((struct usb_redir_iso_packet_header *)header)->length;
+        ep = ((struct usb_redir_iso_packet_header *)header)->endpoint;
+        break;
+    case usb_redir_interrupt_packet:
+        length = ((struct usb_redir_interrupt_packet_header *)header)->length;
+        ep = ((struct usb_redir_interrupt_packet_header *)header)->endpoint;
+        break;
+    }
+
+    if (ep != -1) {
+        if (((ep & 0x80) && !command_for_host) ||
+            (!(ep & 0x80) && command_for_host)) {
+            expect_extra_data = 1;
+        }
+        if (expect_extra_data) {
+            if (data_len != length) {
+                ERROR("data len %d != header len %d ep %02X",
+                      data_len, length, ep);
+                return 0;
+            }
+        } else {
+            if (data || data_len) {
+                ERROR("unexpected extra data ep %02X", ep);
+                return 0;
+            }
+            switch (type) {
+            case usb_redir_iso_packet:
+                ERROR("iso packet send in wrong direction");
+                return 0;
+            case usb_redir_interrupt_packet:
+                if (command_for_host) {
+                    ERROR("interrupt packet send in wrong direction");
+                    return 0;
+                }
+                break;
+            }
+        }
+    }
+
+    return 1; /* Verify ok */
 }
 
 static void usbredirparser_call_type_func(struct usbredirparser *parser)
@@ -580,6 +648,14 @@ int usbredirparser_do_read(struct usbredirparser *parser)
             }
         } else if (parser->type_header_read < parser->type_header_len) {
             parser->type_header_read += r;
+            if (parser->type_header_read == parser->type_header_len) {
+                    if (!usbredirparser_verify_type_header(parser,
+                            parser->header.type, parser->type_header,
+                            parser->data, parser->data_len, 0)) {
+                        parser->to_skip = parser->data_len;
+                        return -2;
+                    }
+            }
         } else {
             parser->data_read += r;
             if (parser->data_read == parser->data_len) {
@@ -635,6 +711,12 @@ static void usbredirparser_queue(struct usbredirparser *parser, uint32_t type,
     type_header_len = usbredirparser_get_type_header_len(parser, type, 1);
     if (type_header_len < 0) { /* This should never happen */
         ERROR("packet type unknown with internal call, please report!!");
+        return;
+    }
+
+    if (!usbredirparser_verify_type_header(parser, type, type_header_in,
+                                           data_in, data_len, 1)) {
+        ERROR("usbredirparser_send_* call invalid params, please report!!");
         return;
     }
 
