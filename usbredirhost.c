@@ -595,7 +595,7 @@ static void usbredirhost_log_data(struct usbredirhost *host, const char *desc,
 
             n = sprintf(buf, "%s", desc);
             for (j = 0; j < 8 && i + j < len; j++){
-                 n += sprintf(buf + n, " %02x", data[i + j]);
+                 n += sprintf(buf + n, " %02X", data[i + j]);
             }
             va_log(host, usbredirparser_debug2, buf);
         }
@@ -622,7 +622,7 @@ static int usbredirhost_submit_iso_transfer(struct usbredirhost *host,
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
         uint8_t ep = transfer->transfer->endpoint;
-        ERROR("submitting iso transfer on ep %02x: %d, stopping stream",
+        ERROR("submitting iso transfer on ep %02X: %d, stopping stream",
               (unsigned int)ep, r);
         usbredirhost_cancel_iso_stream(host, ep, 1);
         return libusb_status_or_error_to_redir_status(host, r);
@@ -757,6 +757,7 @@ static void usbredirhost_iso_packet_complete(
                 .status   = status,
                 .length   = len
             };
+            DEBUG("iso-out ep %02X status %d len %d", ep, status, len);
             usbredirparser_send_iso_packet(host->parser, transfer->id,
                            &iso_packet,
                            libusb_get_iso_packet_buffer(libusb_transfer, i),
@@ -803,6 +804,8 @@ static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
         return usb_redir_inval;
     }
 
+    DEBUG("allocating iso stream ep %02X packet-size %d pkts %d urbs %d",
+          ep, host->endpoint[EP2I(ep)].max_packetsize, pkts_per_transfer, transfer_count);
     for (i = 0; i < transfer_count; i++) {
         host->endpoint[EP2I(ep)].iso_transfer[i] =
             usbredirhost_alloc_transfer(host, pkts_per_transfer);
@@ -898,7 +901,7 @@ static int usbredirhost_submit_interrupt_in_transfer(struct usbredirhost *host,
     transfer = host->endpoint[EP2I(ep)].interrupt_in_transfer;
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
-        ERROR("submitting interrupt transfer on ep %02x: %d", ep, r);
+        ERROR("submitting interrupt transfer on ep %02X: %d", ep, r);
         usbredirhost_free_transfer(transfer);
         host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
         return usb_redir_stall;
