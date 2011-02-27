@@ -1047,6 +1047,8 @@ static void usbredirhost_cancel_interrupt_in_transfer(
     transfer->transfer->user_data = NULL;
     /* Free our transfer struct (and only our struct) now */
     free(transfer);
+
+    host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
 }
 
 /**************************************************************************/
