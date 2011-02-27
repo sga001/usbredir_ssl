@@ -1003,11 +1003,6 @@ static int usbredirhost_alloc_interrupt_in_transfer(struct usbredirhost *host,
         return usb_redir_inval;
     }
 
-    if (host->endpoint[EP2I(ep)].interrupt_in_transfer) {
-        ERROR("received interrupt start for already active ep %02X", ep);
-        return usb_redir_inval;
-    }
-
     transfer = usbredirhost_alloc_transfer(host, 0);
     if (!transfer) {
         return usb_redir_ioerror;
@@ -1235,6 +1230,12 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint32_t id,
     struct usbredirhost *host = priv;
     uint8_t ep = start_interrupt_receiving->endpoint;
     int status;
+
+    if (host->endpoint[EP2I(ep)].interrupt_in_transfer) {
+        ERROR("received interrupt start for already active ep %02X", ep);
+        usbredirhost_send_interrupt_status(host, id, ep, usb_redir_inval);
+        return;
+    }
 
     status = usbredirhost_alloc_interrupt_in_transfer(host, ep);
     if (status != usb_redir_success) {
