@@ -334,10 +334,15 @@ static int usbredirhost_release(struct usbredirhost *host)
                   n, host->active_config, r);
             ret = usb_redir_ioerror;
         }
+    }
+
+    for (i = 0; i < host->config->bNumInterfaces; i++) {
+        n = host->config->interface[i].altsetting[0].bInterfaceNumber;
 
         if (host->driver_detached[i]) {
             r = libusb_attach_kernel_driver(host->handle, n);
-            if (r < 0) {
+            if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND /* No driver */
+                      && r != LIBUSB_ERROR_BUSY /* driver rebound already */) {
                 ERROR("could not re-attach driver to interface %d (configuration %d): %d",
                       n, host->active_config, r);
                 ret = usb_redir_ioerror;
