@@ -1087,8 +1087,15 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
     }
 
     for (i = 0; i < MAX_ENDPOINTS; i++) {
-        if (host->endpoint[i].type == usb_redir_type_iso) {
+        switch (host->endpoint[i].type) {
+        case usb_redir_type_iso:
             usbredirhost_cancel_iso_stream(host, I2EP(i), 1);
+            break;
+        case usb_redir_type_interrupt:
+            if (i & 0x10) {
+                usbredirhost_cancel_interrupt_in_transfer(host, I2EP(i));
+            }
+            break;
         }
     }
     usbredirhost_cancel_pending_urbs(host);
@@ -1145,9 +1152,17 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
     intf_desc = &host->config->interface[i].altsetting[host->alt_setting[i]];
     for (j = 0; j < intf_desc->bNumEndpoints; j++) {
         uint8_t ep = intf_desc->endpoint[j].bEndpointAddress;
-        if (host->endpoint[EP2I(ep)].type == usb_redir_type_iso) {
+        switch (host->endpoint[EP2I(ep)].type) {
+        case usb_redir_type_iso:
             usbredirhost_cancel_iso_stream(host, ep, 1);
-        } else {
+            break;
+        case usb_redir_type_interrupt:
+            if (ep & LIBUSB_ENDPOINT_IN) {
+                usbredirhost_cancel_interrupt_in_transfer(host, ep);
+                break;
+            }
+            /* Fall through */
+        default:
             usbredirhost_cancel_pending_urbs_on_ep(host, ep);
         }
     }
