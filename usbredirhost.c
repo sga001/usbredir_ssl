@@ -768,6 +768,9 @@ static void usbredirhost_iso_packet_complete(
                            libusb_get_iso_packet_buffer(libusb_transfer, i),
                            len);
             transfer->id++;
+        } else {
+            DEBUG("iso-in complete ep %02X pkt %d len %d id %d",
+                  ep, i, len, transfer->id);
         }
     }
 
@@ -1516,8 +1519,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
     j = transfer->iso_packet_idx;
     if (j == ISO_SUBMITTED_IDX) {
-        WARNING("overflow of iso out queue on ep: %02X, dropping packet",
-                (unsigned int)ep);
+        WARNING("overflow of iso out queue on ep: %02X, dropping packet", ep);
         free(data);
         return;
     }
@@ -1530,6 +1532,8 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
            data, data_len);
     transfer->transfer->iso_packet_desc[j].length = data_len;
     free(data);
+    DEBUG("iso-in queue ep %02X urb %d pkt %d len %d id %d",
+           ep, i, j, data_len, transfer->id);
 
     j++;
     transfer->iso_packet_idx = j;
@@ -1555,6 +1559,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
         int needed = (host->endpoint[EP2I(ep)].iso_pkts_per_transfer *
                       host->endpoint[EP2I(ep)].iso_transfer_count) / 2;
         if (available == needed) {
+            DEBUG("iso-in starting stream on ep %02X", ep);
             for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count / 2;
                     i++) {
                 status = usbredirhost_submit_iso_transfer(host,
