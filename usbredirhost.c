@@ -150,6 +150,7 @@ static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     uint8_t ep, int free);
 static void usbredirhost_cancel_interrupt_in_transfer(
     struct usbredirhost *host, uint8_t ep);
+static void usbredirhost_free_transfer(struct usbredirtransfer *transfer);
 
 static void usbredirhost_log(void *priv, int level, const char *msg)
 {
@@ -445,8 +446,29 @@ struct usbredirhost *usbredirhost_open(libusb_device_handle *usb_dev_handle,
 
 void usbredirhost_close(struct usbredirhost *host)
 {
+    int i;
+    struct usbredirtransfer *next, *transfer;
+
     if (!host) {
         return;
+    }
+
+    for (i = 0; i < MAX_ENDPOINTS; i++) {
+        switch (host->endpoint[i].type) {
+        case usb_redir_type_iso:
+            usbredirhost_cancel_iso_stream(host, I2EP(i), 1);
+            break;
+        case usb_redir_type_interrupt:
+            if (i & 0x10) {
+                usbredirhost_cancel_interrupt_in_transfer(host, I2EP(i));
+            }
+            break;
+        }
+    }
+    for (transfer = &host->transfers_head; transfer; transfer = next) {
+        next = transfer->next;
+        libusb_cancel_transfer(transfer->transfer);
+        usbredirhost_free_transfer(transfer);
     }
 
     if (host->claimed) {
