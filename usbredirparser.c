@@ -38,6 +38,7 @@ struct usbredirparser {
     usbredirparser_write write_func;
     usbredirparser_device_info device_info_func;
     usbredirparser_ep_info ep_info_func;
+    usbredirparser_device_disconnected device_disconnected_func;
     usbredirparser_reset reset_func;
     usbredirparser_reset_status reset_status_func;
     usbredirparser_set_configuration set_configuration_func;
@@ -107,6 +108,7 @@ struct usbredirparser *usbredirparser_create(
     usbredirparser_write write_func,
     usbredirparser_device_info device_info_func,
     usbredirparser_ep_info ep_info_func,
+    usbredirparser_device_disconnected device_disconnected_func,
     usbredirparser_reset reset_func,
     usbredirparser_reset_status reset_status_func,
     usbredirparser_set_configuration set_configuration_func,
@@ -147,6 +149,7 @@ struct usbredirparser *usbredirparser_create(
     parser->write_func = write_func;
     parser->device_info_func = device_info_func;
     parser->ep_info_func = ep_info_func;
+    parser->device_disconnected_func = device_disconnected_func;
     parser->reset_func = reset_func;
     parser->reset_status_func = reset_status_func;
     parser->set_configuration_func = set_configuration_func;
@@ -258,6 +261,12 @@ static int usbredirparser_get_type_header_len(struct usbredirparser *parser,
     case usb_redir_ep_info:
         if (!command_for_host) {
             return sizeof(struct usb_redir_ep_info_header);
+        } else {
+            return -1;
+        }
+    case usb_redir_device_disconnected:
+        if (!command_for_host) {
+            return 0;
         } else {
             return -1;
         }
@@ -479,6 +488,9 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser)
     case usb_redir_ep_info:
         parser->ep_info_func(parser->func_priv,
             (struct usb_redir_ep_info_header *)parser->type_header);
+        break;
+    case usb_redir_device_disconnected:
+        parser->device_disconnected_func(parser->func_priv);
         break;
     case usb_redir_reset:
         parser->reset_func(parser->func_priv, parser->header.id);
@@ -765,6 +777,12 @@ void usbredirparser_send_ep_info(struct usbredirparser *parser,
     struct usb_redir_ep_info_header *ep_info)
 {
     usbredirparser_queue(parser, usb_redir_ep_info, 0, ep_info, NULL, 0);
+}
+
+void usbredirparser_send_device_disconnected(struct usbredirparser *parser)
+{
+    usbredirparser_queue(parser, usb_redir_device_disconnected, 0, NULL,
+                         NULL, 0);
 }
 
 void usbredirparser_send_reset(struct usbredirparser *parser, uint32_t id)

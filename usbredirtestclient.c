@@ -47,6 +47,7 @@ static void usbredirtestclient_device_info(void *priv,
     struct usb_redir_device_info_header *device_info);
 static void usbredirtestclient_ep_info(void *priv,
     struct usb_redir_ep_info_header *ep_info);
+static void usbredirtestclient_device_disconnected(void *priv);
 static void usbredirtestclient_reset_status(void *priv, uint32_t id,
     struct usb_redir_reset_status_header *reset_status);
 static void usbredirtestclient_configuration_status(void *priv, uint32_t id,
@@ -269,6 +270,7 @@ int main(int argc, char *argv[])
                                    usbredirtestclient_write,
                                    usbredirtestclient_device_info,
                                    usbredirtestclient_ep_info,
+                                   usbredirtestclient_device_disconnected,
                                    NULL, /* reset */
                                    usbredirtestclient_reset_status,
                                    NULL, /* set config */
@@ -464,6 +466,13 @@ static void usbredirtestclient_ep_info(void *priv,
                   (int)ep_info->interface[i]);
        }
     }
+}
+
+static void usbredirtestclient_device_disconnected(void *priv)
+{
+    printf("device disconnected");
+    close(client_fd);
+    client_fd = -1;
 }
 
 static void usbredirtestclient_reset_status(void *priv, uint32_t id,

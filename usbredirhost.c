@@ -388,6 +388,7 @@ struct usbredirhost *usbredirhost_open(libusb_device_handle *usb_dev_handle,
                                          usbredirhost_write,
                                          NULL, /* report device info */
                                          NULL, /* report ep info */
+                                         NULL, /* device disconnected */
                                          usbredirhost_reset,
                                          NULL, /* reset status */
                                          usbredirhost_set_configuration,
