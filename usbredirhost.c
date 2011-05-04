@@ -462,7 +462,7 @@ void usbredirhost_close(struct usbredirhost *host)
             break;
         }
     }
-    for (transfer = &host->transfers_head; transfer; transfer = next) {
+    for (transfer = host->transfers_head.next; transfer; transfer = next) {
         next = transfer->next;
         libusb_cancel_transfer(transfer->transfer);
         usbredirhost_free_transfer(transfer);
