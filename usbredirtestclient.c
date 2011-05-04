@@ -265,38 +265,27 @@ int main(int argc, char *argv[])
     }
 
     fcntl(client_fd, F_SETFL, (long)fcntl(client_fd, F_GETFL) | O_NONBLOCK);
-    parser = usbredirparser_create(usbredirtestclient_log,
-                                   usbredirtestclient_read,
-                                   usbredirtestclient_write,
-                                   usbredirtestclient_device_info,
-                                   usbredirtestclient_ep_info,
-                                   usbredirtestclient_device_disconnected,
-                                   NULL, /* reset */
-                                   usbredirtestclient_reset_status,
-                                   NULL, /* set config */
-                                   NULL, /* get config */
-                                   usbredirtestclient_configuration_status,
-                                   NULL, /* set alt */
-                                   NULL, /* get alt */
-                                   usbredirtestclient_alt_setting_status,
-                                   NULL, /* start iso */
-                                   NULL, /* stop iso */
-                                   usbredirtestclient_iso_stream_status,
-                                   NULL, /* start interrupt receiving */
-                                   NULL, /* stop interrupt receiving */
-                                   usbredirtestclient_interrupt_receiving_status,
-                                   NULL, /* alloc bulk streams */
-                                   NULL, /* free bulk streams */
-                                   usbredirtestclient_bulk_streams_status,
-                                   NULL, /* cancel packet */
-                                   usbredirtestclient_control_packet,
-                                   usbredirtestclient_bulk_packet,
-                                   usbredirtestclient_iso_packet,
-                                   usbredirtestclient_interrupt_packet,
-                                   NULL, VERSION, NULL, 0, 0);
+    parser = usbredirparser_create();
     if (!parser) {
         exit(1);
     }
+    parser->log_func = usbredirtestclient_log;
+    parser->read_func = usbredirtestclient_read;
+    parser->write_func = usbredirtestclient_write;
+    parser->device_info_func = usbredirtestclient_device_info;
+    parser->ep_info_func = usbredirtestclient_ep_info;
+    parser->device_disconnected_func = usbredirtestclient_device_disconnected;
+    parser->reset_status_func = usbredirtestclient_reset_status;
+    parser->configuration_status_func = usbredirtestclient_configuration_status;
+    parser->alt_setting_status_func = usbredirtestclient_alt_setting_status;
+    parser->iso_stream_status_func = usbredirtestclient_iso_stream_status;
+    parser->interrupt_receiving_status_func = usbredirtestclient_interrupt_receiving_status;
+    parser->bulk_streams_status_func = usbredirtestclient_bulk_streams_status;
+    parser->control_packet_func = usbredirtestclient_control_packet;
+    parser->bulk_packet_func = usbredirtestclient_bulk_packet;
+    parser->iso_packet_func = usbredirtestclient_iso_packet;
+    parser->interrupt_packet_func = usbredirtestclient_interrupt_packet;
+    usbredirparser_init(parser, VERSION, NULL, 0, 0);
 
     /* Queue a reset, the other test commands will be send in response
        to the status packets of previous commands */

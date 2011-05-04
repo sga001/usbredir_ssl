@@ -98,41 +98,61 @@ typedef void (*usbredirparser_interrupt_packet)(void *priv,
     uint32_t id, struct usb_redir_interrupt_packet_header *interrupt_header,
     uint8_t *data, int data_len);
 
-/* Allocate a usbredirparser and set all the callbacks it needs */
+
+/* Public part of the data allocated by usbredirparser_alloc, *never* allocate
+   a usbredirparser struct yourself, it may be extended in the future to add
+   callbacks for new packet types (which will then get added at the end),
+   *and* usbredirparser_alloc will also alloc some space behind it for
+   private data */
+struct usbredirparser {
+    /* app private data passed into all callbacks as the priv argument */
+    void *priv;
+    /* non packet callbacks */
+    usbredirparser_log log_func;
+    usbredirparser_read read_func;
+    usbredirparser_write write_func;
+    /* usb-redir-protocol v0.3 control packet complete callbacks */
+    usbredirparser_device_info device_info_func;
+    usbredirparser_ep_info ep_info_func;
+    usbredirparser_device_disconnected device_disconnected_func;
+    usbredirparser_reset reset_func;
+    usbredirparser_reset_status reset_status_func;
+    usbredirparser_set_configuration set_configuration_func;
+    usbredirparser_get_configuration get_configuration_func;
+    usbredirparser_configuration_status configuration_status_func;
+    usbredirparser_set_alt_setting set_alt_setting_func;
+    usbredirparser_get_alt_setting get_alt_setting_func;
+    usbredirparser_alt_setting_status alt_setting_status_func;
+    usbredirparser_start_iso_stream start_iso_stream_func;
+    usbredirparser_stop_iso_stream stop_iso_stream_func;
+    usbredirparser_iso_stream_status iso_stream_status_func;
+    usbredirparser_start_interrupt_receiving start_interrupt_receiving_func;
+    usbredirparser_stop_interrupt_receiving stop_interrupt_receiving_func;
+    usbredirparser_interrupt_receiving_status interrupt_receiving_status_func;
+    usbredirparser_alloc_bulk_streams alloc_bulk_streams_func;
+    usbredirparser_free_bulk_streams free_bulk_streams_func;
+    usbredirparser_bulk_streams_status bulk_streams_status_func;
+    usbredirparser_cancel_data_packet cancel_data_packet_func;
+    /* usb-redir-protocol v0.3 data packet complete callbacks */
+    usbredirparser_control_packet control_packet_func;
+    usbredirparser_bulk_packet bulk_packet_func;
+    usbredirparser_iso_packet iso_packet_func;
+    usbredirparser_interrupt_packet interrupt_packet_func;
+};
+
+/* Allocate a usbredirparser, after this the app should set the callback app
+   private data and all the callbacks it needs, before calling
+   usbredirparser_init */
+struct usbredirparser *usbredirparser_create(void);
+
+/* Init the parser, this will queue an initial usb_redir_hello packet,
+   sending the version and caps to the peer, as well as configure the parsing
+   according to the passed in flags. */
 enum {
     usbredirparser_fl_usb_host = 1,
 };
 
-struct usbredirparser *usbredirparser_create(
-    usbredirparser_log log_func,
-    usbredirparser_read read_func,
-    usbredirparser_write write_func,
-    usbredirparser_device_info device_info_func,
-    usbredirparser_ep_info ep_info_func,
-    usbredirparser_device_disconnected device_disconnected_func,
-    usbredirparser_reset reset_func,
-    usbredirparser_reset_status reset_status_func,
-    usbredirparser_set_configuration set_configuration_func,
-    usbredirparser_get_configuration get_configuration_func,
-    usbredirparser_configuration_status configuration_status_func,
-    usbredirparser_set_alt_setting set_alt_setting_func,
-    usbredirparser_get_alt_setting get_alt_setting_func,
-    usbredirparser_alt_setting_status alt_setting_status_func,
-    usbredirparser_start_iso_stream start_iso_stream_func,
-    usbredirparser_stop_iso_stream stop_iso_stream_func,
-    usbredirparser_iso_stream_status iso_stream_status_func,
-    usbredirparser_start_interrupt_receiving start_interrupt_receiving_func,
-    usbredirparser_stop_interrupt_receiving stop_interrupt_receiving_func,
-    usbredirparser_interrupt_receiving_status interrupt_receiving_status_func,
-    usbredirparser_alloc_bulk_streams alloc_bulk_streams_func,
-    usbredirparser_free_bulk_streams free_bulk_streams_func,
-    usbredirparser_bulk_streams_status bulk_streams_status_func,
-    usbredirparser_cancel_data_packet cancel_data_packet_func,
-    usbredirparser_control_packet control_packet_func,
-    usbredirparser_bulk_packet bulk_packet_func,
-    usbredirparser_iso_packet iso_packet_func,
-    usbredirparser_interrupt_packet interrupt_packet_func,
-    void *func_priv,
+void usbredirparser_init(struct usbredirparser *parser,
     const char *version, uint32_t *caps, int caps_len, int flags);
 
 void usbredirparser_destroy(struct usbredirparser *parser);

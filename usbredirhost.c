@@ -383,41 +383,37 @@ struct usbredirhost *usbredirhost_open(libusb_device_handle *usb_dev_handle,
     host->write_func = write_guest_data_func;
     host->func_priv = func_priv;
     host->verbose = verbose;
-    host->parser = usbredirparser_create(usbredirhost_log,
-                                         usbredirhost_read,
-                                         usbredirhost_write,
-                                         NULL, /* report device info */
-                                         NULL, /* report ep info */
-                                         NULL, /* device disconnected */
-                                         usbredirhost_reset,
-                                         NULL, /* reset status */
-                                         usbredirhost_set_configuration,
-                                         usbredirhost_get_configuration,
-                                         NULL, /* config status */
-                                         usbredirhost_set_alt_setting,
-                                         usbredirhost_get_alt_setting,
-                                         NULL, /* alt status */
-                                         usbredirhost_start_iso_stream,
-                                         usbredirhost_stop_iso_stream,
-                                         NULL, /* iso status */
-                                         usbredirhost_start_interrupt_receiving,
-                                         usbredirhost_stop_interrupt_receiving,
-                                         NULL, /* interrupt recv. status */
-                                         usbredirhost_alloc_bulk_streams,
-                                         usbredirhost_free_bulk_streams,
-                                         NULL, /* bulk streams status */
-                                         usbredirhost_cancel_data_packet,
-                                         usbredirhost_control_packet,
-                                         usbredirhost_bulk_packet,
-                                         usbredirhost_iso_packet,
-                                         usbredirhost_interrupt_packet,
-                                         host, version, NULL, 0,
-                                         usbredirparser_fl_usb_host);
+    host->parser = usbredirparser_create();
     if (!host->parser) {
-        /* usbredirparser_create will have logged the error */
+        log_func(func_priv, usbredirparser_error,
+            "usbredirhost error: Out of memory allocating usbredirparser");
         usbredirhost_close(host);
         return NULL;
     }
+    host->parser->priv = host;
+    host->parser->log_func = usbredirhost_log;
+    host->parser->read_func = usbredirhost_read;
+    host->parser->write_func = usbredirhost_write;
+    host->parser->reset_func = usbredirhost_reset;
+    host->parser->set_configuration_func = usbredirhost_set_configuration;
+    host->parser->get_configuration_func = usbredirhost_get_configuration;
+    host->parser->set_alt_setting_func = usbredirhost_set_alt_setting;
+    host->parser->get_alt_setting_func = usbredirhost_get_alt_setting;
+    host->parser->start_iso_stream_func = usbredirhost_start_iso_stream;
+    host->parser->stop_iso_stream_func = usbredirhost_stop_iso_stream;
+    host->parser->start_interrupt_receiving_func =
+        usbredirhost_start_interrupt_receiving;
+    host->parser->stop_interrupt_receiving_func =
+        usbredirhost_stop_interrupt_receiving;
+    host->parser->alloc_bulk_streams_func = usbredirhost_alloc_bulk_streams;
+    host->parser->free_bulk_streams_func = usbredirhost_free_bulk_streams;
+    host->parser->cancel_data_packet_func = usbredirhost_cancel_data_packet;
+    host->parser->control_packet_func = usbredirhost_control_packet;
+    host->parser->bulk_packet_func = usbredirhost_bulk_packet;
+    host->parser->iso_packet_func = usbredirhost_iso_packet;
+    host->parser->interrupt_packet_func = usbredirhost_interrupt_packet;
+    usbredirparser_init(host->parser, version, NULL, 0,
+                        usbredirparser_fl_usb_host);
 
     r = libusb_get_configuration(host->handle, &host->active_config);
     if (r < 0) {
