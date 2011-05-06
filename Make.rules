@@ -1,0 +1,30 @@
+USBREDIR_VERSION=0.0.1
+
+# These ones can be overriden from the cmdline
+CFLAGS  = -g -O2 -Wall -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes
+PREFIX  = /usr/local
+LIBDIR  = $(PREFIX)/lib
+SBINDIR = $(PREFIX)/sbin
+
+# These ones should not be overriden from the cmdline
+override CPPFLAGS += -I../usbredirparser -I../usbredirhost
+override LDFLAGS += -L../usbredirparser -L../usbredirhost
+# This is the soname version for the various build libs
+LIB_RELEASE = 0
+
+# And last various rules
+%.o: %.c
+	$(CC) -Wp,-MMD,"$*.d",-MQ,"$@",-MP -c $(CPPFLAGS) $(CFLAGS) -o $@ $<
+
+%.o: %.cpp
+	$(CXX) -Wp,-MMD,"$*.d",-MQ,"$@",-MP -c $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
+
+%.so:
+	$(CC) -shared $(LDFLAGS) -Wl,-soname,$@.$(LIB_RELEASE) -o $@.$(LIB_RELEASE) $^ $(LIBS_$*)
+	ln -f -s $@.$(LIB_RELEASE) $@
+
+%.a:
+	$(AR) cqs $@ $^
+
+clean::
+	rm -f core core.[0123456789]* *~ *.o *.d *.a *.so* DEADJOE *.orig *.rej $(TARGETS)
