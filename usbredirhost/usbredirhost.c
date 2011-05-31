@@ -210,6 +210,19 @@ static int libusb_status_or_error_to_redir_status(struct usbredirhost *host,
     }
 }
 
+static int usbredirhost_get_max_packetsize(uint16_t wMaxPacketSize)
+{
+    int size, packets_per_microframe;
+
+    size = wMaxPacketSize & 0x7ff;
+    switch ((wMaxPacketSize >> 11) & 3) {
+    case 1:  packets_per_microframe = 2; break;
+    case 2:  packets_per_microframe = 3; break;
+    default: packets_per_microframe = 1; break;
+    }
+    return size * packets_per_microframe;
+}
+
 static void usbredirhost_parse_config(struct usbredirhost *host)
 {
     int i, j;
@@ -233,9 +246,11 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
             &host->config->interface[i].altsetting[host->alt_setting[i]];
         for (j = 0; j < intf_desc->bNumEndpoints; j++) {
             ep_address = intf_desc->endpoint[j].bEndpointAddress;
-            /* FIXME libusb_get_max_iso_packet_size always returns 0
+            /* FIXlibusb libusb_get_max_iso_packet_size always returns 0
                independent of alt setting?? */
-            host->endpoint[EP2I(ep_address)].max_packetsize = intf_desc->endpoint[j].wMaxPacketSize;
+            host->endpoint[EP2I(ep_address)].max_packetsize =
+                usbredirhost_get_max_packetsize(
+                    intf_desc->endpoint[j].wMaxPacketSize);
                 /* libusb_get_max_iso_packet_size(host->dev, ep_address); */
             host->endpoint[EP2I(ep_address)].type =
             ep_info.type[EP2I(ep_address)] =
