@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <errno.h>
 #include "usbredirhost.h"
 
 #define MAX_ENDPOINTS        32
@@ -684,6 +685,7 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
 
     switch (r) {
     case LIBUSB_TRANSFER_COMPLETED:
+    case -EXDEV: /* FIXlibusb: Passing regular error codes, bad libusb, bad! */
         return 0;
     case LIBUSB_TRANSFER_CANCELLED:
         /* Stream was intentionally stopped */
