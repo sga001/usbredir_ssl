@@ -75,6 +75,7 @@ struct usbredirhost {
     usbredirparser_write write_func;
     void *func_priv;
     int verbose;
+    libusb_context *ctx;
     libusb_device *dev;
     libusb_device_handle *handle;
     struct libusb_config_descriptor *config;
@@ -374,7 +375,9 @@ static int usbredirhost_release(struct usbredirhost *host)
     return ret;
 }
 
-struct usbredirhost *usbredirhost_open(libusb_device_handle *usb_dev_handle,
+struct usbredirhost *usbredirhost_open(
+    libusb_context *usb_ctx,
+    libusb_device_handle *usb_dev_handle,
     usbredirparser_log log_func,
     usbredirparser_read  read_guest_data_func,
     usbredirparser_write write_guest_data_func,
@@ -392,6 +395,7 @@ struct usbredirhost *usbredirhost_open(libusb_device_handle *usb_dev_handle,
         return NULL;
     }
 
+    host->ctx = usb_ctx;
     host->dev = libusb_get_device(usb_dev_handle);
     host->handle = usb_dev_handle;
     host->log_func = log_func;
@@ -893,6 +897,10 @@ static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     int i;
     struct usbredirtransfer *transfer;
 
+    /* This is inherently racy, some of the transfers we consider in flight
+       may have already completed, suppress libusb cancel error messages. */
+    libusb_set_debug(host->ctx, 0);
+
     for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
         transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
         if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
@@ -922,6 +930,7 @@ static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
         host->endpoint[EP2I(ep)].iso_pkts_per_transfer = 0;
         host->endpoint[EP2I(ep)].iso_transfer_count = 0;
     }
+    libusb_set_debug(host->ctx, host->verbose);
 }
 
 /**************************************************************************/

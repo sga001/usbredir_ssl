@@ -333,7 +333,7 @@ int main(int argc, char *argv[])
             continue;
         }
 
-        host = usbredirhost_open(handle, usbredirserver_log,
+        host = usbredirhost_open(ctx, handle, usbredirserver_log,
                                  usbredirserver_read, usbredirserver_write,
                                  NULL, VERSION, verbose);
         if (!host)
