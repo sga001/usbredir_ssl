@@ -81,6 +81,7 @@ struct usbredirhost {
     struct libusb_config_descriptor *config;
     int active_config;
     int claimed;
+    int disconnected;
     struct usbredirhost_ep endpoint[MAX_ENDPOINTS];
     uint8_t driver_detached[MAX_INTERFACES];
     uint8_t alt_setting[MAX_INTERFACES];
@@ -175,6 +176,14 @@ static int usbredirhost_write(void *priv, uint8_t *data, int count)
     return host->write_func(host->func_priv, data, count);
 }
 
+static void usbredirhost_handle_disconnect(struct usbredirhost *host)
+{
+    if (!host->disconnected) {
+        WARNING("device disconnected");
+        host->disconnected = 1;
+    }
+}
+
 /* One function to convert either a transfer status code, or a libusb error
    code to a usb_redir status. We handle both in one conversion function so
    that we can pass error codes as status codes to the completion handler
@@ -196,7 +205,7 @@ static int libusb_status_or_error_to_redir_status(struct usbredirhost *host,
         case LIBUSB_TRANSFER_STALL:
             return usb_redir_stall;
         case LIBUSB_TRANSFER_NO_DEVICE:
-            WARNING("device disconnected");
+            usbredirhost_handle_disconnect(host);
             return usb_redir_disconnected;
         case LIBUSB_TRANSFER_OVERFLOW:
             return usb_redir_ioerror;
@@ -204,6 +213,7 @@ static int libusb_status_or_error_to_redir_status(struct usbredirhost *host,
         case LIBUSB_ERROR_INVALID_PARAM: 
             return usb_redir_inval;
         case LIBUSB_ERROR_NO_DEVICE:
+            usbredirhost_handle_disconnect(host);
             return usb_redir_disconnected;
         case LIBUSB_ERROR_TIMEOUT:
             return usb_redir_timeout;
@@ -499,7 +509,7 @@ void usbredirhost_close(struct usbredirhost *host)
         usbredirhost_free_transfer(transfer);
     }
 
-    if (host->claimed) {
+    if (host->claimed && !host->disconnected) {
         usbredirhost_release(host);
     }
     if (host->config) {
@@ -735,6 +745,7 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
         /* No iso status message, stall successfully cleared */
         return 2;
     case LIBUSB_TRANSFER_NO_DEVICE:
+        usbredirhost_handle_disconnect(host);
         usbredirhost_send_iso_status(host, id, ep,
                              libusb_status_or_error_to_redir_status(host, r));
         return 2;
@@ -1022,6 +1033,7 @@ static void usbredirhost_interrupt_packet_complete(
         transfer->id = 0;
         goto resubmit;
     case LIBUSB_TRANSFER_NO_DEVICE:
+        usbredirhost_handle_disconnect(host);
         usbredirhost_send_interrupt_status(host, transfer->id, ep, status);
         return;
     case LIBUSB_TRANSFER_OVERFLOW:
@@ -1114,13 +1126,20 @@ static void usbredirhost_reset(void *priv, uint32_t id)
     struct usb_redir_reset_status_header status;
     int r;
 
+    if (host->disconnected) {
+        status.status = usb_redir_disconnected;
+        goto exit;
+    }
+    
     r = libusb_reset_device(host->handle);
     if (r == 0) {
         status.status = usb_redir_success;
     } else {
         ERROR("resetting device: %d", r);
         status.status = usb_redir_disconnected;
+        host->disconnected = 1;
     }
+exit:
     usbredirparser_send_reset_status(host->parser, id, &status);
 }
 
@@ -1132,6 +1151,11 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
     struct usb_redir_configuration_status_header status = {
         .status = usb_redir_success,
     };
+
+    if (host->disconnected) {
+        status.status = usb_redir_disconnected;
+        goto exit;
+    }
 
     if (set_config->configuration == host->active_config) {
         goto exit;
@@ -1200,6 +1224,11 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
         goto exit_unknown_interface;
     }
 
+    if (host->disconnected) {
+        status.status = usb_redir_disconnected;
+        goto exit;
+    }
+
     intf_desc = &host->config->interface[i].altsetting[host->alt_setting[i]];
     for (j = 0; j < intf_desc->bNumEndpoints; j++) {
         uint8_t ep = intf_desc->endpoint[j].bEndpointAddress;
@@ -1265,6 +1294,11 @@ static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
     int i, status;
     uint8_t ep = start_iso_stream->endpoint;
 
+    if (host->disconnected) {
+        usbredirhost_send_iso_status(host, id, ep, usb_redir_disconnected);
+        return;
+    }
+
     status = usbredirhost_alloc_iso_stream(host, ep,
                    start_iso_stream->pkts_per_urb, start_iso_stream->no_urbs);
     if (status != usb_redir_success) {
@@ -1305,6 +1339,12 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint32_t id,
     struct usbredirhost *host = priv;
     uint8_t ep = start_interrupt_receiving->endpoint;
     int status;
+
+    if (host->disconnected) {
+        usbredirhost_send_interrupt_status(host, id, ep,
+                                           usb_redir_disconnected);
+        return;
+    }
 
     if (host->endpoint[EP2I(ep)].interrupt_in_transfer) {
         ERROR("received interrupt start for already active ep %02X", ep);
@@ -1406,6 +1446,15 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     struct usbredirtransfer *transfer;
     unsigned char *buffer;
     int r;
+
+    if (host->disconnected) {
+        control_packet->status = usb_redir_disconnected;
+        control_packet->length = 0;
+        usbredirparser_send_control_packet(host->parser, id, control_packet,
+                                           NULL, 0);
+        free(data);
+        return;
+    }
 
     /* Verify endpoint type */
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_control) {
@@ -1509,6 +1558,15 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
 
     DEBUG("bulk submit ep %02X len %d", ep, bulk_packet->length);
 
+    if (host->disconnected) {
+        bulk_packet->status = usb_redir_disconnected;
+        bulk_packet->length = 0;
+        usbredirparser_send_bulk_packet(host->parser, id, bulk_packet,
+                                        NULL, 0);
+        free(data);
+        return;
+    }
+
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_bulk) {
         ERROR("bulk packet on non bulk ep %02X", ep);
         usbredirhost_send_bulk_inval(host, id, bulk_packet);
@@ -1560,6 +1618,12 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     uint8_t ep = iso_packet->endpoint;
     struct usbredirtransfer *transfer;
     int i, j, status;
+
+    if (host->disconnected) {
+        usbredirhost_send_iso_status(host, id, ep, usb_redir_disconnected);
+        free(data);
+        return;
+    }
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_iso) {
         ERROR("received iso packet for non iso ep %02X", ep);
@@ -1661,6 +1725,15 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
     int r;
 
     DEBUG("interrupt submit ep %02X len %d", ep, interrupt_packet->length);
+
+    if (host->disconnected) {
+        interrupt_packet->status = usb_redir_disconnected;
+        interrupt_packet->length = 0;
+        usbredirparser_send_interrupt_packet(host->parser, id,
+                                             interrupt_packet, NULL, 0);
+        free(data);
+        return;
+    }
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_interrupt) {
         ERROR("received interrupt packet for non interrupt ep %02X", ep);
