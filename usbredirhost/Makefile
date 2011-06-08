@@ -1,6 +1,6 @@
 override CPPFLAGS    += $(shell pkg-config --cflags libusb-1.0)
 
-LIBS_libusbredirhost  = -lusb-1.0
+LIBS_libusbredirhost  = $(shell pkg-config --libs libusb-1.0)
 
 USBREDIRHOST_OBJS     = usbredirhost.o
 USBREDIRHOST_DEPS     = $(USBREDIRHOST_OBJS)
