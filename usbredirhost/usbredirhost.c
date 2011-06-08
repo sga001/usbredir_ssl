@@ -375,6 +375,17 @@ static int usbredirhost_release(struct usbredirhost *host)
     return ret;
 }
 
+static void usbredirhost_cancel_transfer(
+    struct usbredirhost *host,
+    struct usbredirtransfer *transfer)
+{
+    /* This is inherently racy, some of the transfers we consider in flight
+       may have already completed, suppress libusb cancel error messages. */
+    libusb_set_debug(host->ctx, 0);
+    libusb_cancel_transfer(transfer->transfer);
+    libusb_set_debug(host->ctx, host->verbose);
+}
+
 struct usbredirhost *usbredirhost_open(
     libusb_context *usb_ctx,
     libusb_device_handle *usb_dev_handle,
@@ -484,7 +495,7 @@ void usbredirhost_close(struct usbredirhost *host)
     }
     for (transfer = host->transfers_head.next; transfer; transfer = next) {
         next = transfer->next;
-        libusb_cancel_transfer(transfer->transfer);
+        usbredirhost_cancel_transfer(host, transfer);
         usbredirhost_free_transfer(transfer);
     }
 
@@ -594,7 +605,7 @@ static void usbredirhost_cancel_pending_urbs(struct usbredirhost *host)
     struct usbredirtransfer *transfer = &host->transfers_head;
 
     while (transfer->next) {
-        libusb_cancel_transfer(transfer->transfer);
+        usbredirhost_cancel_transfer(host, transfer);
         transfer = transfer->next;
     }
 }
@@ -606,7 +617,7 @@ static void usbredirhost_cancel_pending_urbs_on_ep(
 
     while (transfer->next) {
         if (transfer->transfer->endpoint == ep) {
-            libusb_cancel_transfer(transfer->transfer);
+            usbredirhost_cancel_transfer(host, transfer);
         }
         transfer = transfer->next;
     }
@@ -897,14 +908,10 @@ static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     int i;
     struct usbredirtransfer *transfer;
 
-    /* This is inherently racy, some of the transfers we consider in flight
-       may have already completed, suppress libusb cancel error messages. */
-    libusb_set_debug(host->ctx, 0);
-
     for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
         transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
         if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
-            libusb_cancel_transfer(transfer->transfer);
+            usbredirhost_cancel_transfer(host, transfer);
         }
         if (do_free) {
             if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
@@ -930,7 +937,6 @@ static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
         host->endpoint[EP2I(ep)].iso_pkts_per_transfer = 0;
         host->endpoint[EP2I(ep)].iso_transfer_count = 0;
     }
-    libusb_set_debug(host->ctx, host->verbose);
 }
 
 /**************************************************************************/
@@ -1086,7 +1092,7 @@ static void usbredirhost_cancel_interrupt_in_transfer(
     if (!transfer)
         return; /* Already stopped */
 
-    libusb_cancel_transfer(transfer->transfer);
+    usbredirhost_cancel_transfer(host, transfer);
     /* Tell libusb to free the buffer and transfer when the
        transfer has completed (or was successfully cancelled) */
     transfer->transfer->flags = LIBUSB_TRANSFER_FREE_TRANSFER |
@@ -1350,7 +1356,7 @@ static void usbredirhost_cancel_data_packet(void *priv, uint32_t id)
            we receive the cancel */
         return;
     }
-    libusb_cancel_transfer(transfer->transfer);
+    usbredirhost_cancel_transfer(host, transfer);
 }
 
 static void usbredirhost_control_packet_complete(
