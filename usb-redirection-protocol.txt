@@ -1,4 +1,4 @@
-USB Network Redirection protocol description version 0.2 (unreleased/wip)
+USB Network Redirection protocol description version 0.3 (unreleased/wip)
 
 Revisions
 ---------
@@ -7,6 +7,7 @@ Version 0.1
 -Initial version (released as initial RFC without a version number)
 
 Version 0.2
+-Version demo-ed at FOSDEM 2011
 -Remove usb_redir_report_descriptor packet, as it is not possible to get
  the cached descriptors from the OS on all platforms and we can do without
 -Replace vm-host with usb-guest
@@ -30,6 +31,11 @@ Version 0.3
  usb_redir_interrupt_receiving_status
  usb_redir_interrupt_packet
 -Add a usb_redir_device_disconnected packet
+-Add a list with the possible values for the status field
+-Drop usb_redir_disconnected status, instead the usb-host should always
+ send a usb_redir_device_disconnected packet on device disconnection. The
+ reason behind this is that having to handle disconnection from data packet
+ handlers make things unnecessarily hard for the usb-guest
 
 
 USB redirerection protocol (draft version 0.3)
@@ -131,6 +137,25 @@ usb_redir_bulk_packet
 usb_redir_iso_packet
 usb_redir_interrupt_packet
 
+Status code list
+----------------
+
+Many usb-host replies have a status field, this field can have the following
+values:
+
+enum {
+    usb_redir_success,
+    usb_redir_cancelled,    /* The transfer was cancelled */
+    usb_redir_inval,        /* Invalid packet type / length / ep, etc. */
+    usb_redir_ioerror,      /* IO error */
+    usb_redir_stall,        /* Stalled */
+    usb_redir_timeout,      /* Request timed out */
+};
+
+Note that in future versions there may be additional status codes to signal
+new / other *error* conditions. So any unknown status value should be
+interpreted as an error.
+
 
 usb_redir_hello
 ---------------
@@ -158,7 +183,10 @@ If we cross the 32 capabilities count, it will go from 1 uint32_t to 2,
 etc. the value is 64 + capabilities-array-size * sizeof(uint32_t).
 
 Currently the following capabilities are defined:
-usb_redir_cap_bulk_streams: USB 3 bulk streams are supported
+
+enum {
+    usb_redir_cap_bulk_streams, /* USB 3 bulk streams are supported */
+};
 
 usb_redir_device_info
 ---------------------
@@ -225,12 +253,8 @@ No packet type specific header.
 No packet type specific additional data.
 
 This packet may be send by the usb-host to indicate that the device has been
-disconnected (unplugged). Note not all implementations (depending on for
-example the platform) will send this message. On some platforms the usb-host
-may not notify the usb-guest of a disconnect until a (data) packet is send by
-the usb-guest, in this case the notification will come in the form of a
-usb_redir_disconnected status in the reply to the packet.
-
+disconnected (unplugged). Note on some platforms the usb-host may not become
+aware of the disconnection until a usb packet is send to the device.
 
 usb_redir_reset
 ---------------

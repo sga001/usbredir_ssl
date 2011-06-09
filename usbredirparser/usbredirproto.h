@@ -49,7 +49,6 @@ enum {
     usb_redir_ioerror,      /* IO error */
     usb_redir_stall,        /* Stalled */
     usb_redir_timeout,      /* Request timed out */
-    usb_redir_disconnected, /* The device has been disconnected */
 };
 
 enum {
@@ -101,7 +100,7 @@ enum {
 };
 
 enum {
-    usb_redir_cap_bulk_streams,
+    usb_redir_cap_bulk_streams, /* USB 3 bulk streams are supported */
 };
 /* Number of uint32_t-s needed to hold all (known) capabilities */
 #define USB_REDIR_CAPS_SIZE 1

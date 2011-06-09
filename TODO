@@ -1,3 +1,4 @@
 * do endian conversion in usbredirparser where necessary
 * check length against max packet size
 * check caps for relevant callbacks in parser
+* be smarter with iso buffering / make configurable (in qemu)
