@@ -36,6 +36,8 @@ Version 0.3
  send a usb_redir_device_disconnected packet on device disconnection. The
  reason behind this is that having to handle disconnection from data packet
  handlers make things unnecessarily hard for the usb-guest
+-Drop usb_redir_reset_status, instead if reconnecting to the device fails
+ after reset the usb-host will send a usb_redir_device_disconnected packet
 
 
 USB redirerection protocol (draft version 0.3)
@@ -267,23 +269,9 @@ No packet type specific header.
 No packet type specific additional data.
 
 This packet can be send by the usb-guest to cause a reset of the usb
-device.
-
-usb_redir_reset_status
-----------------------
-
-usb_redir_header.type:    usb_redir_reset_status
-usb_redir_header.length:  sizeof(usb_redir_reset_status_header)
-
-struct usb_redir_reser_status_header {
-    uint8_t status;
-}
-
-No packet type specific additional data.
-
-This packet is send by the usb-host in response to a usb_redir_reset packet.
-Note that an error status means that the usb-host was unable to re-connect
-to the device after the reset!
+device. Note that of things go wrong the usb-host may be unable to re-connect
+to the device after the reset! If this happens a usb_redir_device_disconnected
+packet will be send by the usb-host.
 
 
 usb_redir_set_configuration

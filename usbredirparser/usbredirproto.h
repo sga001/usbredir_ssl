@@ -75,7 +75,6 @@ enum {
     usb_redir_ep_info,
     usb_redir_device_disconnected,
     usb_redir_reset,
-    usb_redir_reset_status,
     usb_redir_set_configuration,
     usb_redir_get_configuration,
     usb_redir_configuration_status,

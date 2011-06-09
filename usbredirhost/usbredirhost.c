@@ -24,6 +24,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <errno.h>
+#include <unistd.h>
 #include "usbredirhost.h"
 
 #define MAX_ENDPOINTS        32
@@ -1121,24 +1122,20 @@ static void usbredirhost_cancel_interrupt_in_transfer(
 static void usbredirhost_reset(void *priv, uint32_t id)
 {
     struct usbredirhost *host = priv;
-    struct usb_redir_reset_status_header status;
     int r;
 
     if (host->disconnected) {
-        status.status = usb_redir_ioerror;
-        goto exit;
+        return;
     }
     
     r = libusb_reset_device(host->handle);
     if (r == 0) {
-        status.status = usb_redir_success;
+        /* Some devices need some time to settle before firing more cmds */
+        usleep(100000);
     } else {
         ERROR("resetting device: %d", r);
-        status.status = usb_redir_ioerror;
-        host->disconnected = 1;
+        usbredirhost_handle_disconnect(host);
     }
-exit:
-    usbredirparser_send_reset_status(host->parser, id, &status);
 }
 
 static void usbredirhost_set_configuration(void *priv, uint32_t id,

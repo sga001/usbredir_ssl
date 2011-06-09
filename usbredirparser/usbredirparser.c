@@ -191,12 +191,6 @@ static int usbredirparser_get_type_header_len(
         } else {
             return -1;
         }
-    case usb_redir_reset_status:
-        if (!command_for_host) {
-            return sizeof(struct usb_redir_reset_status_header);
-        } else {
-            return -1;
-        }
     case usb_redir_set_configuration:
         if (command_for_host) {
             return sizeof(struct usb_redir_set_configuration_header);
@@ -410,11 +404,6 @@ static void usbredirparser_call_type_func(struct usbredirparser_priv *parser)
         break;
     case usb_redir_reset:
         parser->callb.reset_func(parser->callb.priv, parser->header.id);
-        break;
-    case usb_redir_reset_status:
-        parser->callb.reset_status_func(parser->callb.priv,
-            parser->header.id,
-            (struct usb_redir_reset_status_header *)parser->type_header);
         break;
     case usb_redir_set_configuration:
         parser->callb.set_configuration_func(parser->callb.priv,
@@ -737,13 +726,6 @@ void usbredirparser_send_device_disconnected(struct usbredirparser *parser)
 void usbredirparser_send_reset(struct usbredirparser *parser, uint32_t id)
 {
     usbredirparser_queue(parser, usb_redir_reset, id, NULL, NULL, 0);
-}
-
-void usbredirparser_send_reset_status(struct usbredirparser *parser,
-    uint32_t id, struct usb_redir_reset_status_header *reset_status)
-{
-    usbredirparser_queue(parser, usb_redir_reset_status, id,
-                         reset_status, NULL, 0);
 }
 
 void usbredirparser_send_set_configuration(struct usbredirparser *parser,

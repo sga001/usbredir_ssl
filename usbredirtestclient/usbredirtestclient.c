@@ -48,8 +48,6 @@ static void usbredirtestclient_device_info(void *priv,
 static void usbredirtestclient_ep_info(void *priv,
     struct usb_redir_ep_info_header *ep_info);
 static void usbredirtestclient_device_disconnected(void *priv);
-static void usbredirtestclient_reset_status(void *priv, uint32_t id,
-    struct usb_redir_reset_status_header *reset_status);
 static void usbredirtestclient_configuration_status(void *priv, uint32_t id,
     struct usb_redir_configuration_status_header *configuration_status);
 static void usbredirtestclient_alt_setting_status(void *priv, uint32_t id,
@@ -275,7 +273,6 @@ int main(int argc, char *argv[])
     parser->device_info_func = usbredirtestclient_device_info;
     parser->ep_info_func = usbredirtestclient_ep_info;
     parser->device_disconnected_func = usbredirtestclient_device_disconnected;
-    parser->reset_status_func = usbredirtestclient_reset_status;
     parser->configuration_status_func = usbredirtestclient_configuration_status;
     parser->alt_setting_status_func = usbredirtestclient_alt_setting_status;
     parser->iso_stream_status_func = usbredirtestclient_iso_stream_status;
@@ -287,9 +284,10 @@ int main(int argc, char *argv[])
     parser->interrupt_packet_func = usbredirtestclient_interrupt_packet;
     usbredirparser_init(parser, VERSION, NULL, 0, 0);
 
-    /* Queue a reset, the other test commands will be send in response
-       to the status packets of previous commands */
+    /* Queue a reset + set config the other test commands will be send in
+       response to the status packets of previous commands */
     usbredirparser_send_reset(parser, reset_id);
+    usbredirparser_send_get_configuration(parser, get_config_id);
 
     run_main_loop();
 
@@ -462,19 +460,6 @@ static void usbredirtestclient_device_disconnected(void *priv)
     printf("device disconnected");
     close(client_fd);
     client_fd = -1;
-}
-
-static void usbredirtestclient_reset_status(void *priv, uint32_t id,
-    struct usb_redir_reset_status_header *reset_status)
-{
-    switch (id) {
-    case reset_id:
-        printf("Reset status: %d\n", reset_status->status);
-        usbredirparser_send_get_configuration(parser, get_config_id);
-        break;
-    default:
-        fprintf(stderr, "Unexpected reset status packet, id: %d\n", id);
-    }
 }
 
 static void usbredirtestclient_configuration_status(void *priv, uint32_t id,
