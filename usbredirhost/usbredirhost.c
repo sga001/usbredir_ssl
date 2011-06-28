@@ -116,7 +116,7 @@ static void va_log(struct usbredirhost *host, int level,
 #define DEBUG(...)   va_log(host, usbredirparser_debug, \
                             "usbredirhost: " __VA_ARGS__)
 
-static void usbredirhost_reset(void *priv, uint32_t id);
+static void usbredirhost_reset(void *priv);
 static void usbredirhost_set_configuration(void *priv, uint32_t id,
     struct usb_redir_set_configuration_header *set_configuration);
 static void usbredirhost_get_configuration(void *priv, uint32_t id);
@@ -1119,7 +1119,7 @@ static void usbredirhost_cancel_interrupt_in_transfer(
 
 /**************************************************************************/
 
-static void usbredirhost_reset(void *priv, uint32_t id)
+static void usbredirhost_reset(void *priv)
 {
     struct usbredirhost *host = priv;
     int r;
