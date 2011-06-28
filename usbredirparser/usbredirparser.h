@@ -48,7 +48,7 @@ typedef void (*usbredirparser_device_info)(void *priv,
 typedef void (*usbredirparser_ep_info)(void *priv,
     struct usb_redir_ep_info_header *ep_info);
 typedef void (*usbredirparser_device_disconnected)(void *priv);
-typedef void (*usbredirparser_reset)(void *priv, uint32_t id);
+typedef void (*usbredirparser_reset)(void *priv);
 typedef void (*usbredirparser_set_configuration)(void *priv,
     uint32_t id, struct usb_redir_set_configuration_header *set_configuration);
 typedef void (*usbredirparser_get_configuration)(void *priv, uint32_t id);
@@ -186,7 +186,7 @@ void usbredirparser_send_device_info(struct usbredirparser *parser,
 void usbredirparser_send_ep_info(struct usbredirparser *parser,
     struct usb_redir_ep_info_header *ep_info);
 void usbredirparser_send_device_disconnected(struct usbredirparser *parser);
-void usbredirparser_send_reset(struct usbredirparser *parser, uint32_t id);
+void usbredirparser_send_reset(struct usbredirparser *parser);
 void usbredirparser_send_set_configuration(struct usbredirparser *parser,
     uint32_t id,
     struct usb_redir_set_configuration_header *set_configuration);

@@ -403,7 +403,7 @@ static void usbredirparser_call_type_func(struct usbredirparser_priv *parser)
         parser->callb.device_disconnected_func(parser->callb.priv);
         break;
     case usb_redir_reset:
-        parser->callb.reset_func(parser->callb.priv, parser->header.id);
+        parser->callb.reset_func(parser->callb.priv);
         break;
     case usb_redir_set_configuration:
         parser->callb.set_configuration_func(parser->callb.priv,
@@ -723,9 +723,9 @@ void usbredirparser_send_device_disconnected(struct usbredirparser *parser)
                          NULL, 0);
 }
 
-void usbredirparser_send_reset(struct usbredirparser *parser, uint32_t id)
+void usbredirparser_send_reset(struct usbredirparser *parser)
 {
-    usbredirparser_queue(parser, usb_redir_reset, id, NULL, NULL, 0);
+    usbredirparser_queue(parser, usb_redir_reset, 0, NULL, NULL, 0);
 }
 
 void usbredirparser_send_set_configuration(struct usbredirparser *parser,

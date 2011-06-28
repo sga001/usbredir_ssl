@@ -286,7 +286,7 @@ int main(int argc, char *argv[])
 
     /* Queue a reset + set config the other test commands will be send in
        response to the status packets of previous commands */
-    usbredirparser_send_reset(parser, reset_id);
+    usbredirparser_send_reset(parser);
     usbredirparser_send_get_configuration(parser, get_config_id);
 
     run_main_loop();

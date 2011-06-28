@@ -1127,7 +1127,7 @@ static void usbredirhost_reset(void *priv, uint32_t id)
     if (host->disconnected) {
         return;
     }
-    
+return;    
     r = libusb_reset_device(host->handle);
     if (r == 0) {
         /* Some devices need some time to settle before firing more cmds */
