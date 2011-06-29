@@ -43,12 +43,12 @@ typedef int (*usbredirparser_write)(void *priv, uint8_t *data, int count);
    guarenteed to be that of the callback.
 
    Control packets: */
-typedef void (*usbredirparser_device_info)(void *priv,
-    struct usb_redir_device_info_header *device_info);
+typedef void (*usbredirparser_device_connect)(void *priv,
+    struct usb_redir_device_connect_header *device_connect);
+typedef void (*usbredirparser_device_disconnect)(void *priv);
+typedef void (*usbredirparser_reset)(void *priv);
 typedef void (*usbredirparser_ep_info)(void *priv,
     struct usb_redir_ep_info_header *ep_info);
-typedef void (*usbredirparser_device_disconnected)(void *priv);
-typedef void (*usbredirparser_reset)(void *priv);
 typedef void (*usbredirparser_set_configuration)(void *priv,
     uint32_t id, struct usb_redir_set_configuration_header *set_configuration);
 typedef void (*usbredirparser_get_configuration)(void *priv, uint32_t id);
@@ -110,10 +110,10 @@ struct usbredirparser {
     usbredirparser_read read_func;
     usbredirparser_write write_func;
     /* usb-redir-protocol v0.3 control packet complete callbacks */
-    usbredirparser_device_info device_info_func;
-    usbredirparser_ep_info ep_info_func;
-    usbredirparser_device_disconnected device_disconnected_func;
+    usbredirparser_device_connect device_connect_func;
+    usbredirparser_device_disconnect device_disconnect_func;
     usbredirparser_reset reset_func;
+    usbredirparser_ep_info ep_info_func;
     usbredirparser_set_configuration set_configuration_func;
     usbredirparser_get_configuration get_configuration_func;
     usbredirparser_configuration_status configuration_status_func;
@@ -181,12 +181,12 @@ uint32_t *usbredirparser_get_peer_caps(int *caps_len_ret);
    2) if their is not enough memory for buffers the packet will be dropped
       (and an error message will be logged */
 /* Control packets: */
-void usbredirparser_send_device_info(struct usbredirparser *parser,
-    struct usb_redir_device_info_header *device_info);
+void usbredirparser_send_device_connect(struct usbredirparser *parser,
+    struct usb_redir_device_connect_header *device_connect);
+void usbredirparser_send_device_disconnect(struct usbredirparser *parser);
+void usbredirparser_send_reset(struct usbredirparser *parser);
 void usbredirparser_send_ep_info(struct usbredirparser *parser,
     struct usb_redir_ep_info_header *ep_info);
-void usbredirparser_send_device_disconnected(struct usbredirparser *parser);
-void usbredirparser_send_reset(struct usbredirparser *parser);
 void usbredirparser_send_set_configuration(struct usbredirparser *parser,
     uint32_t id,
     struct usb_redir_set_configuration_header *set_configuration);

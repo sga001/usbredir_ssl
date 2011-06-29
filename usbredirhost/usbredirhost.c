@@ -181,7 +181,7 @@ static void usbredirhost_handle_disconnect(struct usbredirhost *host)
 {
     if (!host->disconnected) {
         WARNING("device disconnected");
-        usbredirparser_send_device_disconnected(host->parser);
+        usbredirparser_send_device_disconnect(host->parser);
         host->disconnected = 1;
     }
 }
@@ -407,7 +407,7 @@ struct usbredirhost *usbredirhost_open(
     void *func_priv, const char *version, int verbose)
 {
     struct usbredirhost *host;
-    struct usb_redir_device_info_header device_info;
+    struct usb_redir_device_connect_header device_connect;
     enum libusb_speed speed;
     int r;
 
@@ -472,14 +472,18 @@ struct usbredirhost *usbredirhost_open(
 
     speed = libusb_get_device_speed(host->dev);
     switch (speed) {
-    case LIBUSB_SPEED_LOW:   device_info.speed = usb_redir_speed_low; break;
-    case LIBUSB_SPEED_FULL:  device_info.speed = usb_redir_speed_full; break;
-    case LIBUSB_SPEED_HIGH:  device_info.speed = usb_redir_speed_high; break;
-    case LIBUSB_SPEED_SUPER: device_info.speed = usb_redir_speed_super; break;
+    case LIBUSB_SPEED_LOW:
+        device_connect.speed = usb_redir_speed_low; break;
+    case LIBUSB_SPEED_FULL:
+        device_connect.speed = usb_redir_speed_full; break;
+    case LIBUSB_SPEED_HIGH:
+        device_connect.speed = usb_redir_speed_high; break;
+    case LIBUSB_SPEED_SUPER:
+        device_connect.speed = usb_redir_speed_super; break;
     default:
-        device_info.speed = usb_redir_speed_unknown;
+        device_connect.speed = usb_redir_speed_unknown;
     }
-    usbredirparser_send_device_info(host->parser, &device_info);
+    usbredirparser_send_device_connect(host->parser, &device_connect);
 
     return host;
 }

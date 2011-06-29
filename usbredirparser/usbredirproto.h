@@ -71,10 +71,10 @@ enum {
 enum {
     /* Control packets */
     usb_redir_hello,
-    usb_redir_device_info,
-    usb_redir_ep_info,
-    usb_redir_device_disconnected,
+    usb_redir_device_connect,
+    usb_redir_device_disconnect,
     usb_redir_reset,
+    usb_redir_ep_info,
     usb_redir_set_configuration,
     usb_redir_get_configuration,
     usb_redir_configuration_status,
@@ -115,7 +115,7 @@ struct usb_redir_hello_header {
     uint32_t capabilities[0];
 } ATTR_PACKED;
 
-struct usb_redir_device_info_header {
+struct usb_redir_device_connect_header {
     uint8_t speed;
 } ATTR_PACKED;
 
@@ -123,10 +123,6 @@ struct usb_redir_ep_info_header {
     uint8_t type[32];
     uint8_t interval[32];
     uint8_t interface[32];
-} ATTR_PACKED;
-
-struct usb_redir_reset_status_header {
-    uint8_t status;
 } ATTR_PACKED;
 
 struct usb_redir_set_configuration_header {

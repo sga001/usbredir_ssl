@@ -43,11 +43,11 @@
 #define VERSION "usbredirtestclient 0.0"
 #endif
 
-static void usbredirtestclient_device_info(void *priv,
-    struct usb_redir_device_info_header *device_info);
+static void usbredirtestclient_device_connect(void *priv,
+    struct usb_redir_device_connect_header *device_connect);
+static void usbredirtestclient_device_disconnect(void *priv);
 static void usbredirtestclient_ep_info(void *priv,
     struct usb_redir_ep_info_header *ep_info);
-static void usbredirtestclient_device_disconnected(void *priv);
 static void usbredirtestclient_configuration_status(void *priv, uint32_t id,
     struct usb_redir_configuration_status_header *configuration_status);
 static void usbredirtestclient_alt_setting_status(void *priv, uint32_t id,
@@ -270,9 +270,9 @@ int main(int argc, char *argv[])
     parser->log_func = usbredirtestclient_log;
     parser->read_func = usbredirtestclient_read;
     parser->write_func = usbredirtestclient_write;
-    parser->device_info_func = usbredirtestclient_device_info;
+    parser->device_connect_func = usbredirtestclient_device_connect;
+    parser->device_disconnect_func = usbredirtestclient_device_disconnect;
     parser->ep_info_func = usbredirtestclient_ep_info;
-    parser->device_disconnected_func = usbredirtestclient_device_disconnected;
     parser->configuration_status_func = usbredirtestclient_configuration_status;
     parser->alt_setting_status_func = usbredirtestclient_alt_setting_status;
     parser->iso_stream_status_func = usbredirtestclient_iso_stream_status;
@@ -428,10 +428,10 @@ static void usbredirtestclient_cmdline_parse(void)
     }
 }
 
-static void usbredirtestclient_device_info(void *priv,
-    struct usb_redir_device_info_header *device_info)
+static void usbredirtestclient_device_connect(void *priv,
+    struct usb_redir_device_connect_header *device_connect)
 {
-    switch (device_info->speed) {
+    switch (device_connect->speed) {
     case usb_redir_speed_low:   printf("device info: speed: low\n"); break;
     case usb_redir_speed_full:  printf("device info: speed: full\n"); break;
     case usb_redir_speed_high:  printf("device info: speed: high\n"); break;
@@ -439,6 +439,13 @@ static void usbredirtestclient_device_info(void *priv,
     default:
         printf("device info: speed: unknown\n");
     }
+}
+
+static void usbredirtestclient_device_disconnect(void *priv)
+{
+    printf("device disconnected");
+    close(client_fd);
+    client_fd = -1;
 }
 
 static void usbredirtestclient_ep_info(void *priv,
@@ -453,13 +460,6 @@ static void usbredirtestclient_ep_info(void *priv,
                   (int)ep_info->interface[i]);
        }
     }
-}
-
-static void usbredirtestclient_device_disconnected(void *priv)
-{
-    printf("device disconnected");
-    close(client_fd);
-    client_fd = -1;
 }
 
 static void usbredirtestclient_configuration_status(void *priv, uint32_t id,

@@ -22,22 +22,22 @@ Version 0.2
 -Add usb_redir_reset and usb_redir_reset_status packets
 
 Version 0.3
+-Add a usb_redir_device_connect packet
+-Add a usb_redir_device_disconnect packet
 -Add a usb_redir_ep_info packet
--Report usb_redir_stall as iso status error to indicate a stream stop
--Add a usb_redir_device_info packet
 -Add support for interrupt transfers, add the following packets:
  usb_redir_start_interrupt_receiving
  usb_redir_stop_interrupt_receiving
  usb_redir_interrupt_receiving_status
  usb_redir_interrupt_packet
--Add a usb_redir_device_disconnected packet
 -Add a list with the possible values for the status field
--Drop usb_redir_disconnected status, instead the usb-host should always
- send a usb_redir_device_disconnected packet on device disconnection. The
+-Report usb_redir_stall as iso status error to indicate a stream stop
+-Drop usb_redir_disconnect status, instead the usb-host should always
+ send a usb_redir_device_disconnect packet on device disconnection. The
  reason behind this is that having to handle disconnection from data packet
  handlers make things unnecessarily hard for the usb-guest
 -Drop usb_redir_reset_status, instead if reconnecting to the device fails
- after reset the usb-host will send a usb_redir_device_disconnected packet
+ after reset the usb-host will send a usb_redir_device_disconnect packet
 
 
 USB redirerection protocol (draft version 0.3)
@@ -111,11 +111,10 @@ Packet type list
 
 control packets:
 usb_redir_hello
-usb_redir_device_info
-usb_redir_ep_info
-usb_redir_device_disconnected
+usb_redir_device_connect
+usb_redir_device_disconnect
 usb_redir_reset
-usb_redir_reset_status
+usb_redir_ep_info
 usb_redir_set_configuration
 usb_redir_get_configuration
 usb_redir_configuration_status
@@ -190,11 +189,11 @@ enum {
     usb_redir_cap_bulk_streams, /* USB 3 bulk streams are supported */
 };
 
-usb_redir_device_info
----------------------
+usb_redir_device_connect
+------------------------
 
-usb_redir_header.type:    usb_redir_device_info
-usb_redir_header.length:  sizeof(usb_redir_device_info_header)
+usb_redir_header.type:    usb_redir_device_connect
+usb_redir_header.length:  sizeof(usb_redir_device_connect_header)
 usb_redir_header.id:      0 (always as this is an unsolicited packet)
 
 enum {
@@ -205,15 +204,47 @@ enum {
     usb_redir_speed_unknown = 255
 }
 
-struct usb_redir_device_info_header {
+struct usb_redir_device_connect_header {
     uint8_t speed;
 }
 
 No packet type specific additional data.
 
-This packet gets send by the usb-host to let the usb-guest know the speed
-of the device. It gets send directly after the hello message (so also as
-soon as a connection gets established).
+This packet gets send by the usb-host when a device becomes available (it is
+possible for the usb-host to wait for a device to get plugged in).
+
+Note that a usb-host may re-use the existing connection for a new / re-plugged
+device in this case this packet can be send after a usb_redir_device_disconnect
+message to notify the usb-guest that a new device is available.
+
+usb_redir_device_disconnect
+---------------------------
+
+usb_redir_header.type:    usb_redir_device_disconnect
+usb_redir_header.length:  0 (always as this is an unsolicited packet)
+
+No packet type specific header.
+
+No packet type specific additional data.
+
+This packet may be send by the usb-host to indicate that the device has been
+disconnect (unplugged). Note on some platforms the usb-host may not become
+aware of the disconnection until a usb packet is send to the device.
+
+usb_redir_reset
+---------------
+
+usb_redir_header.type:    usb_redir_reset
+usb_redir_header.length:  0
+
+No packet type specific header.
+
+No packet type specific additional data.
+
+This packet can be send by the usb-guest to cause a reset of the usb
+device. Note that of things go wrong the usb-host may be unable to re-connect
+to the device after the reset! If this happens a usb_redir_device_disconnect
+packet will be send by the usb-host.
 
 usb_redir_ep_info
 -----------------
@@ -243,35 +274,6 @@ This packet gets send by the usb-host to let the usb-guest know the endpoint
 type, interval and interface it belongs to for all possible endpoints,
 first 0-15 out, then 0-15 in. This gets send after a (successful) initial
 connection, reset, set_config and set_alt_setting.
-
-usb_redir_device_disconnected
------------------------------
-
-usb_redir_header.type:    usb_redir_device_disconnected
-usb_redir_header.length:  0 (always as this is an unsolicited packet)
-
-No packet type specific header.
-
-No packet type specific additional data.
-
-This packet may be send by the usb-host to indicate that the device has been
-disconnected (unplugged). Note on some platforms the usb-host may not become
-aware of the disconnection until a usb packet is send to the device.
-
-usb_redir_reset
----------------
-
-usb_redir_header.type:    usb_redir_reset
-usb_redir_header.length:  0
-
-No packet type specific header.
-
-No packet type specific additional data.
-
-This packet can be send by the usb-guest to cause a reset of the usb
-device. Note that of things go wrong the usb-host may be unable to re-connect
-to the device after the reset! If this happens a usb_redir_device_disconnected
-packet will be send by the usb-host.
 
 
 usb_redir_set_configuration

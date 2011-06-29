@@ -167,19 +167,13 @@ static int usbredirparser_get_type_header_len(
     switch (type) {
     case usb_redir_hello:
         return sizeof(struct usb_redir_hello_header);
-    case usb_redir_device_info:
+    case usb_redir_device_connect:
         if (!command_for_host) {
-            return sizeof(struct usb_redir_device_info_header);
+            return sizeof(struct usb_redir_device_connect_header);
         } else {
             return -1;
         }
-    case usb_redir_ep_info:
-        if (!command_for_host) {
-            return sizeof(struct usb_redir_ep_info_header);
-        } else {
-            return -1;
-        }
-    case usb_redir_device_disconnected:
+    case usb_redir_device_disconnect:
         if (!command_for_host) {
             return 0;
         } else {
@@ -188,6 +182,12 @@ static int usbredirparser_get_type_header_len(
     case usb_redir_reset:
         if (command_for_host) {
             return 0; /* No packet type specific header */
+        } else {
+            return -1;
+        }
+    case usb_redir_ep_info:
+        if (!command_for_host) {
+            return sizeof(struct usb_redir_ep_info_header);
         } else {
             return -1;
         }
@@ -391,19 +391,19 @@ static void usbredirparser_call_type_func(struct usbredirparser_priv *parser)
             (struct usb_redir_hello_header *)parser->type_header,
             parser->data, parser->data_len);
         break;
-    case usb_redir_device_info:
-        parser->callb.device_info_func(parser->callb.priv,
-            (struct usb_redir_device_info_header *)parser->type_header);
+    case usb_redir_device_connect:
+        parser->callb.device_connect_func(parser->callb.priv,
+            (struct usb_redir_device_connect_header *)parser->type_header);
+        break;
+    case usb_redir_device_disconnect:
+        parser->callb.device_disconnect_func(parser->callb.priv);
+        break;
+    case usb_redir_reset:
+        parser->callb.reset_func(parser->callb.priv);
         break;
     case usb_redir_ep_info:
         parser->callb.ep_info_func(parser->callb.priv,
             (struct usb_redir_ep_info_header *)parser->type_header);
-        break;
-    case usb_redir_device_disconnected:
-        parser->callb.device_disconnected_func(parser->callb.priv);
-        break;
-    case usb_redir_reset:
-        parser->callb.reset_func(parser->callb.priv);
         break;
     case usb_redir_set_configuration:
         parser->callb.set_configuration_func(parser->callb.priv,
@@ -704,28 +704,28 @@ static void usbredirparser_queue(struct usbredirparser *parser_pub,
     wbuf->next = new_wbuf;
 }
 
-void usbredirparser_send_device_info(struct usbredirparser *parser,
-    struct usb_redir_device_info_header *device_info)
+void usbredirparser_send_device_connect(struct usbredirparser *parser,
+    struct usb_redir_device_connect_header *device_connect)
 {
-    usbredirparser_queue(parser, usb_redir_device_info, 0, device_info,
+    usbredirparser_queue(parser, usb_redir_device_connect, 0, device_connect,
                          NULL, 0);
 }
 
-void usbredirparser_send_ep_info(struct usbredirparser *parser,
-    struct usb_redir_ep_info_header *ep_info)
+void usbredirparser_send_device_disconnect(struct usbredirparser *parser)
 {
-    usbredirparser_queue(parser, usb_redir_ep_info, 0, ep_info, NULL, 0);
-}
-
-void usbredirparser_send_device_disconnected(struct usbredirparser *parser)
-{
-    usbredirparser_queue(parser, usb_redir_device_disconnected, 0, NULL,
+    usbredirparser_queue(parser, usb_redir_device_disconnect, 0, NULL,
                          NULL, 0);
 }
 
 void usbredirparser_send_reset(struct usbredirparser *parser)
 {
     usbredirparser_queue(parser, usb_redir_reset, 0, NULL, NULL, 0);
+}
+
+void usbredirparser_send_ep_info(struct usbredirparser *parser,
+    struct usb_redir_ep_info_header *ep_info)
+{
+    usbredirparser_queue(parser, usb_redir_ep_info, 0, ep_info, NULL, 0);
 }
 
 void usbredirparser_send_set_configuration(struct usbredirparser *parser,
