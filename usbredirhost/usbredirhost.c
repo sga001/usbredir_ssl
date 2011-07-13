@@ -242,6 +242,7 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
     int i, j;
     const struct libusb_interface_descriptor *intf_desc;
     struct usb_redir_ep_info_header ep_info;
+    struct usb_redir_interface_info_header interface_info;
     uint8_t ep_address;
 
     for (i = 0; i < MAX_ENDPOINTS; i++) {
@@ -255,9 +256,16 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
         ep_info.interval[i] = 0;
     }
 
+    interface_info.interface_count = host->config->bNumInterfaces;
     for (i = 0; i < host->config->bNumInterfaces; i++) {
         intf_desc =
             &host->config->interface[i].altsetting[host->alt_setting[i]];
+
+        interface_info.interface[i] = intf_desc->bInterfaceNumber;
+        interface_info.interface_class[i] = intf_desc->bInterfaceClass;
+        interface_info.interface_subclass[i] = intf_desc->bInterfaceSubClass;
+        interface_info.interface_protocol[i] = intf_desc->bInterfaceProtocol;
+        
         for (j = 0; j < intf_desc->bNumEndpoints; j++) {
             ep_address = intf_desc->endpoint[j].bEndpointAddress;
             /* FIXlibusb libusb_get_max_iso_packet_size always returns 0
@@ -276,6 +284,7 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
                 intf_desc->bInterfaceNumber;
         }
     }
+    usbredirparser_send_interface_info(host->parser, &interface_info);
     usbredirparser_send_ep_info(host->parser, &ep_info);
 }
 
@@ -408,6 +417,7 @@ struct usbredirhost *usbredirhost_open(
 {
     struct usbredirhost *host;
     struct usb_redir_device_connect_header device_connect;
+    struct libusb_device_descriptor desc;
     enum libusb_speed speed;
     int r;
 
@@ -465,6 +475,13 @@ struct usbredirhost *usbredirhost_open(
         return NULL;
     }
 
+    r = libusb_get_device_descriptor(host->dev, &desc);
+    if (r < 0) {
+        ERROR("could not get device descriptor: %d", r);
+        usbredirhost_close(host);
+        return NULL;
+    }
+
     if (usbredirhost_claim(host) != usb_redir_success) {
         usbredirhost_close(host);
         return NULL;
@@ -483,6 +500,12 @@ struct usbredirhost *usbredirhost_open(
     default:
         device_connect.speed = usb_redir_speed_unknown;
     }
+    device_connect.device_class = desc.bDeviceClass;
+    device_connect.device_subclass = desc.bDeviceSubClass;
+    device_connect.device_protocol = desc.bDeviceProtocol;
+    device_connect.vendor_id = desc.idVendor;
+    device_connect.product_id = desc.idProduct;
+
     usbredirparser_send_device_connect(host->parser, &device_connect);
 
     return host;

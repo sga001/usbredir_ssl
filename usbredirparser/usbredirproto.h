@@ -74,6 +74,7 @@ enum {
     usb_redir_device_connect,
     usb_redir_device_disconnect,
     usb_redir_reset,
+    usb_redir_interface_info,
     usb_redir_ep_info,
     usb_redir_set_configuration,
     usb_redir_get_configuration,
@@ -117,6 +118,19 @@ struct usb_redir_hello_header {
 
 struct usb_redir_device_connect_header {
     uint8_t speed;
+    uint8_t device_class;
+    uint8_t device_subclass;
+    uint8_t device_protocol;
+    uint16_t vendor_id;
+    uint16_t product_id;
+} ATTR_PACKED;
+
+struct usb_redir_interface_info_header {
+    uint32_t interface_count;
+    uint8_t interface[32];
+    uint8_t interface_class[32];
+    uint8_t interface_subclass[32];
+    uint8_t interface_protocol[32];
 } ATTR_PACKED;
 
 struct usb_redir_ep_info_header {

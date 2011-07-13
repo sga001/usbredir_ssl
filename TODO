@@ -1,5 +1,3 @@
-* add usb id, device class to connect_header
-* add a interface info packet, with class + subclass info per interface
 * do endian conversion in usbredirparser where necessary
 * check length against max packet size
 * check caps for relevant callbacks in parser

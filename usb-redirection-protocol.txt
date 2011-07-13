@@ -24,6 +24,7 @@ Version 0.2
 Version 0.3
 -Add a usb_redir_device_connect packet
 -Add a usb_redir_device_disconnect packet
+-Add a usb_redir_interface_info packet
 -Add a usb_redir_ep_info packet
 -Add support for interrupt transfers, add the following packets:
  usb_redir_start_interrupt_receiving
@@ -114,6 +115,7 @@ usb_redir_hello
 usb_redir_device_connect
 usb_redir_device_disconnect
 usb_redir_reset
+usb_redir_interface_info
 usb_redir_ep_info
 usb_redir_set_configuration
 usb_redir_get_configuration
@@ -206,6 +208,11 @@ enum {
 
 struct usb_redir_device_connect_header {
     uint8_t speed;
+    uint8_t device_class;
+    uint8_t device_subclass;
+    uint8_t device_protocol;
+    uint16_t vendor_id;
+    uint16_t product_id;
 }
 
 No packet type specific additional data.
@@ -245,6 +252,28 @@ This packet can be send by the usb-guest to cause a reset of the usb
 device. Note that of things go wrong the usb-host may be unable to re-connect
 to the device after the reset! If this happens a usb_redir_device_disconnect
 packet will be send by the usb-host.
+
+usb_redir_interface_info
+------------------------
+
+usb_redir_header.type:    usb_redir_interface_info
+usb_redir_header.length:  sizeof(usb_redir_interface_info_header)
+usb_redir_header.id:      0 (always as this is an unsolicited packet)
+
+struct usb_redir_interface_info_header {
+    uint32_t interface_count;
+    uint8_t interface[32];
+    uint8_t interface_class[32];
+    uint8_t interface_subclass[32];
+    uint8_t interface_protocol[32];
+}
+
+No packet type specific additional data.
+
+This packet gets send by the usb-host to inform the usb-guest about the
+interfaces of the device. It contains the interface number, class and protocol
+info for interface_count interfaces. This gets send after a (successful)
+initial connection, reset, set_config and set_alt_setting.
 
 usb_redir_ep_info
 -----------------

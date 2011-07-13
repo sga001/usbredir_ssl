@@ -185,6 +185,12 @@ static int usbredirparser_get_type_header_len(
         } else {
             return -1;
         }
+    case usb_redir_interface_info:
+        if (!command_for_host) {
+            return sizeof(struct usb_redir_interface_info_header);
+        } else {
+            return -1;
+        }
     case usb_redir_ep_info:
         if (!command_for_host) {
             return sizeof(struct usb_redir_ep_info_header);
@@ -400,6 +406,10 @@ static void usbredirparser_call_type_func(struct usbredirparser_priv *parser)
         break;
     case usb_redir_reset:
         parser->callb.reset_func(parser->callb.priv);
+        break;
+    case usb_redir_interface_info:
+        parser->callb.interface_info_func(parser->callb.priv,
+            (struct usb_redir_interface_info_header *)parser->type_header);
         break;
     case usb_redir_ep_info:
         parser->callb.ep_info_func(parser->callb.priv,
@@ -720,6 +730,13 @@ void usbredirparser_send_device_disconnect(struct usbredirparser *parser)
 void usbredirparser_send_reset(struct usbredirparser *parser)
 {
     usbredirparser_queue(parser, usb_redir_reset, 0, NULL, NULL, 0);
+}
+
+void usbredirparser_send_interface_info(struct usbredirparser *parser,
+    struct usb_redir_interface_info_header *interface_info)
+{
+    usbredirparser_queue(parser, usb_redir_interface_info, 0, interface_info,
+                         NULL, 0);
 }
 
 void usbredirparser_send_ep_info(struct usbredirparser *parser,

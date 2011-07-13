@@ -47,6 +47,8 @@ typedef void (*usbredirparser_device_connect)(void *priv,
     struct usb_redir_device_connect_header *device_connect);
 typedef void (*usbredirparser_device_disconnect)(void *priv);
 typedef void (*usbredirparser_reset)(void *priv);
+typedef void (*usbredirparser_interface_info)(void *priv,
+    struct usb_redir_interface_info_header *interface_info);
 typedef void (*usbredirparser_ep_info)(void *priv,
     struct usb_redir_ep_info_header *ep_info);
 typedef void (*usbredirparser_set_configuration)(void *priv,
@@ -113,6 +115,7 @@ struct usbredirparser {
     usbredirparser_device_connect device_connect_func;
     usbredirparser_device_disconnect device_disconnect_func;
     usbredirparser_reset reset_func;
+    usbredirparser_interface_info interface_info_func;
     usbredirparser_ep_info ep_info_func;
     usbredirparser_set_configuration set_configuration_func;
     usbredirparser_get_configuration get_configuration_func;
@@ -185,6 +188,8 @@ void usbredirparser_send_device_connect(struct usbredirparser *parser,
     struct usb_redir_device_connect_header *device_connect);
 void usbredirparser_send_device_disconnect(struct usbredirparser *parser);
 void usbredirparser_send_reset(struct usbredirparser *parser);
+void usbredirparser_send_interface_info(struct usbredirparser *parser,
+    struct usb_redir_interface_info_header *interface_info);
 void usbredirparser_send_ep_info(struct usbredirparser *parser,
     struct usb_redir_ep_info_header *ep_info);
 void usbredirparser_send_set_configuration(struct usbredirparser *parser,

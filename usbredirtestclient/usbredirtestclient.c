@@ -46,6 +46,8 @@
 static void usbredirtestclient_device_connect(void *priv,
     struct usb_redir_device_connect_header *device_connect);
 static void usbredirtestclient_device_disconnect(void *priv);
+static void usbredirtestclient_interface_info(void *priv,
+    struct usb_redir_interface_info_header *interface_info);
 static void usbredirtestclient_ep_info(void *priv,
     struct usb_redir_ep_info_header *ep_info);
 static void usbredirtestclient_configuration_status(void *priv, uint32_t id,
@@ -272,6 +274,7 @@ int main(int argc, char *argv[])
     parser->write_func = usbredirtestclient_write;
     parser->device_connect_func = usbredirtestclient_device_connect;
     parser->device_disconnect_func = usbredirtestclient_device_disconnect;
+    parser->interface_info_func = usbredirtestclient_interface_info;
     parser->ep_info_func = usbredirtestclient_ep_info;
     parser->configuration_status_func = usbredirtestclient_configuration_status;
     parser->alt_setting_status_func = usbredirtestclient_alt_setting_status;
@@ -439,6 +442,11 @@ static void usbredirtestclient_device_connect(void *priv,
     default:
         printf("device info: speed: unknown\n");
     }
+    printf("  class %2d subclass %2d protocol %2d\n",
+           device_connect->device_class, device_connect->device_subclass,
+           device_connect->device_protocol);
+    printf("  vendor 0x%04x product %04x\n",
+           device_connect->vendor_id, device_connect->product_id);
 }
 
 static void usbredirtestclient_device_disconnect(void *priv)
@@ -446,6 +454,18 @@ static void usbredirtestclient_device_disconnect(void *priv)
     printf("device disconnected");
     close(client_fd);
     client_fd = -1;
+}
+
+static void usbredirtestclient_interface_info(void *priv,
+    struct usb_redir_interface_info_header *info)
+{
+    int i;
+
+    for (i = 0; i < info->interface_count; i++) {
+        printf("interface %d class %2d subclass %2d protocol %2d\n",
+               info->interface[i], info->interface_class[i],
+               info->interface_subclass[i], info->interface_protocol[i]);
+    }
 }
 
 static void usbredirtestclient_ep_info(void *priv,
