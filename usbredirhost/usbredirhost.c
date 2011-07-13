@@ -150,9 +150,9 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
     struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len);
 
-static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
+static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     uint8_t ep, int free);
-static void usbredirhost_cancel_interrupt_in_transfer(
+static int usbredirhost_cancel_interrupt_in_transfer(
     struct usbredirhost *host, uint8_t ep);
 static void usbredirhost_free_transfer(struct usbredirtransfer *transfer);
 
@@ -513,8 +513,9 @@ struct usbredirhost *usbredirhost_open(
 
 void usbredirhost_close(struct usbredirhost *host)
 {
-    int i;
-    struct usbredirtransfer *next, *transfer;
+    int i, cancelled = 0;
+    struct usbredirtransfer *t;
+    struct timeval tv;
 
     if (!host) {
         return;
@@ -523,19 +524,29 @@ void usbredirhost_close(struct usbredirhost *host)
     for (i = 0; i < MAX_ENDPOINTS; i++) {
         switch (host->endpoint[i].type) {
         case usb_redir_type_iso:
-            usbredirhost_cancel_iso_stream(host, I2EP(i), 1);
+            cancelled += usbredirhost_cancel_iso_stream(host, I2EP(i), 1);
             break;
         case usb_redir_type_interrupt:
             if (i & 0x10) {
-                usbredirhost_cancel_interrupt_in_transfer(host, I2EP(i));
+                cancelled +=
+                    usbredirhost_cancel_interrupt_in_transfer(host, I2EP(i));
             }
             break;
         }
     }
-    for (transfer = host->transfers_head.next; transfer; transfer = next) {
-        next = transfer->next;
-        usbredirhost_cancel_transfer(host, transfer);
-        usbredirhost_free_transfer(transfer);
+    for (t = host->transfers_head.next; t; t = t->next) {
+        usbredirhost_cancel_transfer(host, t);
+        cancelled++;
+    }
+    
+    DEBUG("cancelled %d transfers on device close", cancelled);
+    /* On linux libusb_handle_events* handles one completion before returning,
+       so we need to call it once for each cancelled transfer */
+    while (cancelled) {
+        memset(&tv, 0, sizeof(tv));
+        tv.tv_usec = 2500;
+        libusb_handle_events_timeout(host->ctx, &tv);
+        cancelled--;
     }
 
     if (host->claimed && !host->disconnected) {
@@ -940,16 +951,17 @@ alloc_error:
     return usb_redir_ioerror;
 }
 
-static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
+static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     uint8_t ep, int do_free)
 {
-    int i;
+    int i, cancelled = 0;
     struct usbredirtransfer *transfer;
 
     for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
         transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
         if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
             usbredirhost_cancel_transfer(host, transfer);
+            cancelled++;
         }
         if (do_free) {
             if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
@@ -975,6 +987,7 @@ static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
         host->endpoint[EP2I(ep)].iso_pkts_per_transfer = 0;
         host->endpoint[EP2I(ep)].iso_transfer_count = 0;
     }
+    return cancelled;
 }
 
 /**************************************************************************/
@@ -1121,14 +1134,14 @@ static int usbredirhost_alloc_interrupt_in_transfer(struct usbredirhost *host,
     return usb_redir_success;
 }
 
-static void usbredirhost_cancel_interrupt_in_transfer(
+static int usbredirhost_cancel_interrupt_in_transfer(
     struct usbredirhost *host, uint8_t ep)
 {
     struct usbredirtransfer *transfer;
 
     transfer = host->endpoint[EP2I(ep)].interrupt_in_transfer;
     if (!transfer)
-        return; /* Already stopped */
+        return 0; /* Already stopped */
 
     usbredirhost_cancel_transfer(host, transfer);
     /* Tell libusb to free the buffer and transfer when the
@@ -1142,6 +1155,7 @@ static void usbredirhost_cancel_interrupt_in_transfer(
     free(transfer);
 
     host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
+    return 1;
 }
 
 /**************************************************************************/

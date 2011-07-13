@@ -58,7 +58,12 @@ struct usbredirhost *usbredirhost_open(
     void *func_priv, const char *version, int verbose);
 
 /* Close the usbredirhost, returning control of the device back to any
-   host kernel drivers for it, freeing any allocated memory, etc. */
+   host kernel drivers for it, freeing any allocated memory, etc.
+
+   Note this function calls libusb_handle_events to "reap" cancelled
+   urbs before closing the libusb device handle. This means that if you
+   are using the same libusb context for other purposes your transfer complete
+   callbacks may get called! */
 void usbredirhost_close(struct usbredirhost *host);
 
 /* Call this whenever there is data ready for the usbredirhost to read from
