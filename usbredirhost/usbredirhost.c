@@ -978,8 +978,9 @@ static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
                 usbredirhost_free_transfer(transfer);
             }
             host->endpoint[EP2I(ep)].iso_transfer[i] = NULL;
+        } else {
+            transfer->iso_packet_idx = 0;
         }
-        transfer->iso_packet_idx = 0;
     }
     host->endpoint[EP2I(ep)].iso_out_idx = 0;
     host->endpoint[EP2I(ep)].iso_started = 0;
