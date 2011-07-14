@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
     struct addrinfo *r, *res, hints;
     struct sigaction act;
     char port_str[16];
-    libusb_device_handle *handle;
+    libusb_device_handle *handle = NULL;
 
     while ((o = getopt_long(argc, argv, "hp:", longopts, NULL)) != -1) {
         switch (o) {
@@ -319,12 +319,29 @@ int main(int argc, char *argv[])
                 fprintf(stderr,
                     "Could not open an usb-device with vid:pid %04x:%04x\n",
                     usbvendor, usbproduct);
-                exit(1);
             }
         } else {
-            /* FIXME */
-            fprintf(stderr, "bus-addr usb device indentification is not implemented\n");
-            exit(1);
+            libusb_device **list = NULL;
+            ssize_t i, n;
+
+            n = libusb_get_device_list(ctx, &list);
+            for (i = 0; i < n; i++) {
+                if (libusb_get_bus_number(list[i]) == usbbus &&
+                        libusb_get_device_address(list[i]) == usbaddr)
+                    break;
+            }
+            if (i < n) {
+                if (libusb_open(list[i], &handle) != 0) {
+                    fprintf(stderr,
+                        "Could not open usb-device at bus-addr %d-%d\n",
+                        usbbus, usbaddr);
+                }
+            } else {
+                fprintf(stderr,
+                    "Could not find an usb-device at bus-addr %d-%d\n",
+                    usbbus, usbaddr);
+            }
+            libusb_free_device_list(list, 1);
         }
         if (!handle) {
             close(client_fd);
@@ -338,6 +355,7 @@ int main(int argc, char *argv[])
             exit(1);
         run_main_loop();
         usbredirhost_close(host);
+        handle = NULL;
     }
 
     close(server_fd);
