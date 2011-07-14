@@ -1,4 +1,4 @@
-USBREDIR_VERSION=0.3.0
+USBREDIR_VERSION=0.3
 
 # These ones can be overriden from the cmdline
 CFLAGS  = -g -O2 -Wall -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes
