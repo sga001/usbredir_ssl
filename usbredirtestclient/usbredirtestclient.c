@@ -39,9 +39,7 @@
 #define EP2I(ep_address) (((ep_address & 0x80) >> 3) | (ep_address & 0x0f))
 #define I2EP(i) (((i & 0x10) << 3) | (i & 0x0f))
 
-#ifndef VERSION
-#define VERSION "usbredirtestclient 0.0"
-#endif
+#define VERSION "usbredirtestclient " USBREDIR_VERSION
 
 static void usbredirtestclient_device_connect(void *priv,
     struct usb_redir_device_connect_header *device_connect);

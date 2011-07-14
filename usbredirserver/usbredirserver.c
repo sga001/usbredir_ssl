@@ -35,9 +35,7 @@
 #include <netdb.h>
 #include "usbredirhost.h"
 
-#ifndef VERSION
-#define VERSION "usbredirserver 0.0"
-#endif
+#define VERSION "usbredirserver " USBREDIR_VERSION
 
 static int verbose = usbredirparser_info;
 static int client_fd, running = 1;
