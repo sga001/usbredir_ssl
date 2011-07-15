@@ -194,7 +194,7 @@ int main(int argc, char *argv[])
     char port_str[16];
     libusb_device_handle *handle = NULL;
 
-    while ((o = getopt_long(argc, argv, "hp:", longopts, NULL)) != -1) {
+    while ((o = getopt_long(argc, argv, "hp:v:", longopts, NULL)) != -1) {
         switch (o) {
         case 'p':
             port = strtol(optarg, &endptr, 10);
