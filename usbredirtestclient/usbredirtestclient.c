@@ -561,6 +561,7 @@ static void usbredirtestclient_control_packet(void *priv, uint32_t id,
         printf(" %02X", (unsigned int)data[i]);
     }
     printf("\n");
+    usbredirparser_free_packet_data(parser, data);
 
     /* Ask what to send next */
     usbredirtestclient_cmdline_parse();

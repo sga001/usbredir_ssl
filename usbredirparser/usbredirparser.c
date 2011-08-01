@@ -669,6 +669,12 @@ void usbredirparser_free_write_buffer(struct usbredirparser *parser,
     free(data);
 }
 
+void usbredirparser_free_packet_data(struct usbredirparser *parser,
+    uint8_t *data)
+{
+    free(data);
+}
+
 static void usbredirparser_queue(struct usbredirparser *parser_pub,
     uint32_t type, uint32_t id, void *type_header_in,
     uint8_t *data_in, int data_len)

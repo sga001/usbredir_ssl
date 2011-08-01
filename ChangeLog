@@ -3,6 +3,8 @@ usbredir-0.3.1 unreleased
 -usbredirparser:
  -add a usbredirparser_fl_write_cb_owns_buffer flag
   See the comment in usbredirparser.h above usbredirparser_write for details.
+ -add a usbredirparser_free_packet_data function for symetry with
+  usbredirparser_free_write_buffer
 
 -usbredirhost:
  -Fix device resets

@@ -611,6 +611,8 @@ static void usbredirhost_free_transfer(struct usbredirtransfer *transfer)
     if (!transfer)
         return;
 
+    /* In certain cases this should really be a usbredirparser_free_packet_data
+       but since we use the same malloc impl. as usbredirparser this is ok. */
     free(transfer->transfer->buffer);
     libusb_free_transfer(transfer->transfer);
     free(transfer);
@@ -971,6 +973,10 @@ static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
             if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
                 /* Tell libusb to free the buffer and transfer when the
                    transfer has completed (or was successfully cancelled) */
+                /* FIXME this will cause libusb to call plain free() on
+                   transfer->transfer->buffer. If it is using a different
+                   crt or we add support for plugging a different
+                   malloc/free into usbredirparser + host this is wrong */
                 transfer->transfer->flags = LIBUSB_TRANSFER_FREE_TRANSFER |
                                             LIBUSB_TRANSFER_FREE_BUFFER;
                 /* Let the completion handler know that our transfer struct
@@ -1151,6 +1157,10 @@ static int usbredirhost_cancel_interrupt_in_transfer(
     usbredirhost_cancel_transfer(host, transfer);
     /* Tell libusb to free the buffer and transfer when the
        transfer has completed (or was successfully cancelled) */
+    /* FIXME this will cause libusb to call plain free() on
+       transfer->transfer->buffer. If it is using a different
+       crt or we add support for plugging a different
+       malloc/free into usbredirparser + host this is wrong */
     transfer->transfer->flags = LIBUSB_TRANSFER_FREE_TRANSFER |
                                 LIBUSB_TRANSFER_FREE_BUFFER;
     /* Let the completion handler know that our transfer struct
@@ -1492,7 +1502,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
         control_packet->length = 0;
         usbredirparser_send_control_packet(host->parser, id, control_packet,
                                            NULL, 0);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
@@ -1500,21 +1510,21 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_control) {
         ERROR("control packet on non control ep %02X", ep);
         usbredirhost_send_control_inval(host, id, control_packet);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
     buffer = malloc(LIBUSB_CONTROL_SETUP_SIZE + control_packet->length);
     if (!buffer) {
         ERROR("out of memory allocating transfer buffer, dropping packet");
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
     transfer = usbredirhost_alloc_transfer(host, 0);
     if (!transfer) {
         free(buffer);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
@@ -1528,7 +1538,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     if (!(ep & LIBUSB_ENDPOINT_IN)) {
         usbredirhost_log_data(host, "ctrl data out:", data, data_len);
         memcpy(buffer + LIBUSB_CONTROL_SETUP_SIZE, data, data_len);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
     }
 
     libusb_fill_control_transfer(transfer->transfer, host->handle, buffer,
@@ -1603,14 +1613,14 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
         bulk_packet->length = 0;
         usbredirparser_send_bulk_packet(host->parser, id, bulk_packet,
                                         NULL, 0);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_bulk) {
         ERROR("bulk packet on non bulk ep %02X", ep);
         usbredirhost_send_bulk_inval(host, id, bulk_packet);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
@@ -1661,28 +1671,28 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
 
     if (host->disconnected) {
         usbredirhost_send_iso_status(host, id, ep, usb_redir_ioerror);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_iso) {
         ERROR("received iso packet for non iso ep %02X", ep);
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
     if (host->endpoint[EP2I(ep)].iso_transfer_count == 0) {
         ERROR("received iso out packet for non started iso stream");
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
     if (data_len > host->endpoint[EP2I(ep)].max_packetsize) {
         ERROR("received iso out packet is larger than wMaxPacketSize");
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
@@ -1691,7 +1701,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     j = transfer->iso_packet_idx;
     if (j == ISO_SUBMITTED_IDX) {
         WARNING("overflow of iso out queue on ep: %02X, dropping packet", ep);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
@@ -1702,7 +1712,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     memcpy(libusb_get_iso_packet_buffer(transfer->transfer, j),
            data, data_len);
     transfer->transfer->iso_packet_desc[j].length = data_len;
-    free(data);
+    usbredirparser_free_packet_data(host->parser, data);
     DEBUG("iso-in queue ep %02X urb %d pkt %d len %d id %d",
            ep, i, j, data_len, transfer->id);
 
@@ -1771,21 +1781,21 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
         interrupt_packet->length = 0;
         usbredirparser_send_interrupt_packet(host->parser, id,
                                              interrupt_packet, NULL, 0);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_interrupt) {
         ERROR("received interrupt packet for non interrupt ep %02X", ep);
         usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
     if (data_len > host->endpoint[EP2I(ep)].max_packetsize) {
         ERROR("received interrupt out packet is larger than wMaxPacketSize");
         usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 
@@ -1796,7 +1806,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
 
     transfer = usbredirhost_alloc_transfer(host, 0);
     if (!transfer) {
-        free(data);
+        usbredirparser_free_packet_data(host->parser, data);
         return;
     }
 

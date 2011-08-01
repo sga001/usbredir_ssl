@@ -94,7 +94,9 @@ typedef void (*usbredirparser_cancel_data_packet)(void *priv, uint32_t id);
 
 /* Data packets:
 
-   Note the data buffer (if not NULL) must be free()-ed by the user. */
+   Note that ownership of the the data buffer (if not NULL) is passed on to
+   the callback. The callback should free it by calling
+   usbredirparser_free_packet_data when it is done with it. */
 typedef void (*usbredirparser_control_packet)(void *priv,
     uint32_t id, struct usb_redir_control_packet_header *control_header,
     uint8_t *data, int data_len);
@@ -189,6 +191,10 @@ int usbredirparser_do_write(struct usbredirparser *parser);
 
 /* See usbredirparser_write documentation */
 void usbredirparser_free_write_buffer(struct usbredirparser *parser,
+    uint8_t *data);
+
+/* See the data packet callbacks documentation */
+void usbredirparser_free_packet_data(struct usbredirparser *parser,
     uint8_t *data);
 
 /* Call this to get the capabilities of its peer */
