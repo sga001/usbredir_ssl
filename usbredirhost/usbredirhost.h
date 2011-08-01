@@ -49,13 +49,18 @@ struct usbredirhost;
       thread has its own libusb_context. IOW usbredirhost does not use
       static or global variables.
 */
+
+enum {
+    usbredirhost_fl_write_cb_owns_buffer = 0x01, /* See usbredirparser.h */
+};
+
 struct usbredirhost *usbredirhost_open(
     libusb_context *usb_ctx,
     libusb_device_handle *usb_dev_handle,
     usbredirparser_log log_func,
     usbredirparser_read  read_guest_data_func,
     usbredirparser_write write_guest_data_func,
-    void *func_priv, const char *version, int verbose);
+    void *func_priv, const char *version, int verbose, int flags);
 
 /* Close the usbredirhost, returning control of the device back to any
    host kernel drivers for it, freeing any allocated memory, etc.

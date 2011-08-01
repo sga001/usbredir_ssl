@@ -350,7 +350,7 @@ int main(int argc, char *argv[])
 
         host = usbredirhost_open(ctx, handle, usbredirserver_log,
                                  usbredirserver_read, usbredirserver_write,
-                                 NULL, VERSION, verbose);
+                                 NULL, VERSION, verbose, 0);
         if (!host)
             exit(1);
         run_main_loop();

@@ -15,6 +15,8 @@ USBREDIRHOST_DEPS    += ../usbredirparser/libusbredirparser.so
 override CPPFLAGS    += -fPIC
 endif
 
+LIB_RELEASE = 1
+
 all: $(TARGETS)
 
 -include $(USBREDIRHOST_OBJS:.o=.d)

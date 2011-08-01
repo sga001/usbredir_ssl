@@ -1,4 +1,4 @@
-USBREDIR_VERSION=0.3
+USBREDIR_VERSION=0.3.1
 
 # These ones can be overriden from the cmdline
 CFLAGS  = -g -O2 -Wall -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes
@@ -9,8 +9,6 @@ SBINDIR = $(PREFIX)/sbin
 # These ones should not be overriden from the cmdline
 override CPPFLAGS += -I../usbredirparser -I../usbredirhost -DUSBREDIR_VERSION='"$(USBREDIR_VERSION)"'
 override LDFLAGS += -L../usbredirparser -L../usbredirhost
-# This is the soname version for the various build libs
-LIB_RELEASE = 0
 
 # And last various rules
 %.o: %.c

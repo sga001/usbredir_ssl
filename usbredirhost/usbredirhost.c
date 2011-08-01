@@ -413,13 +413,14 @@ struct usbredirhost *usbredirhost_open(
     usbredirparser_log log_func,
     usbredirparser_read  read_guest_data_func,
     usbredirparser_write write_guest_data_func,
-    void *func_priv, const char *version, int verbose)
+    void *func_priv, const char *version, int verbose, int flags)
 {
     struct usbredirhost *host;
     struct usb_redir_device_connect_header device_connect;
     struct libusb_device_descriptor desc;
     enum libusb_speed speed;
     int r;
+    int parser_flags = usbredirparser_fl_usb_host;
 
     host = calloc(1, sizeof(*host));
     if (!host) {
@@ -465,8 +466,11 @@ struct usbredirhost *usbredirhost_open(
     host->parser->bulk_packet_func = usbredirhost_bulk_packet;
     host->parser->iso_packet_func = usbredirhost_iso_packet;
     host->parser->interrupt_packet_func = usbredirhost_interrupt_packet;
-    usbredirparser_init(host->parser, version, NULL, 0,
-                        usbredirparser_fl_usb_host);
+
+    if (flags & usbredirhost_fl_write_cb_owns_buffer) {
+        parser_flags |= usbredirparser_fl_write_cb_owns_buffer;
+    }
+    usbredirparser_init(host->parser, version, NULL, 0, parser_flags);
 
     r = libusb_get_configuration(host->handle, &host->active_config);
     if (r < 0) {

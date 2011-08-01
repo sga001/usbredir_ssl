@@ -6,6 +6,9 @@ usbredir-0.3.1 unreleased
 
 -usbredirhost:
  -Fix device resets
+ -Add a flags parameter to usbredirhost_open, this accepts the following flags:
+  usbredirhost_fl_write_cb_owns_buffer
+ -The flags parameter causes an ABI breakage, new soname: libusbredirhost.so.1
 
 -usbredirserver:
  -Fix -v flag

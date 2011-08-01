@@ -9,6 +9,8 @@ USBREDIRPARSER_LIB  = libusbredirparser.so
 override CPPFLAGS  += -fPIC
 endif
 
+LIB_RELEASE = 0
+
 all: $(TARGETS)
 
 -include $(USBREDIRPARSER_OBJS:.o=.d)
