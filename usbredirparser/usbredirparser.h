@@ -32,7 +32,17 @@ typedef void (*usbredirparser_log)(void *priv, int level, const char *msg);
 
 /* Called by a usbredirparser to read/write data to its peer.
    Must return the amount of bytes read/written, 0 when the read/write would
-   block (and this is undesirable) and -1 on error. */
+   block (and this is undesirable) and -1 on error.
+
+   If the usbredirparser_fl_write_cb_owns_buffer flag is passed to
+   usbredirparser_init, then the usbredirparser_write callback becomes
+   the owner of the buffer pointed to by data and should call
+   usbredirparser_free_write_buffer() when it is done with the buffer.
+   In this case the callback is not allowed to return any amount of bytes
+   written, it must either accept the entire buffer (return count),
+   or signal blocking (return 0) or error (return -1). Returning any other
+   value will result in a call to abort().
+*/
 typedef int (*usbredirparser_read)(void *priv, uint8_t *data, int count);
 typedef int (*usbredirparser_write)(void *priv, uint8_t *data, int count);
 
@@ -149,7 +159,8 @@ struct usbredirparser *usbredirparser_create(void);
    sending the version and caps to the peer, as well as configure the parsing
    according to the passed in flags. */
 enum {
-    usbredirparser_fl_usb_host = 1,
+    usbredirparser_fl_usb_host = 0x01,
+    usbredirparser_fl_write_cb_owns_buffer = 0x02,
 };
 
 void usbredirparser_init(struct usbredirparser *parser,
@@ -175,6 +186,10 @@ int usbredirparser_has_data_to_write(struct usbredirparser *parser);
    If a write error happened, this function will retry writing any queued data
    on the next call, and will continue doing so until it has succeeded! */
 int usbredirparser_do_write(struct usbredirparser *parser);
+
+/* See usbredirparser_write documentation */
+void usbredirparser_free_write_buffer(struct usbredirparser *parser,
+    uint8_t *data);
 
 /* Call this to get the capabilities of its peer */
 uint32_t *usbredirparser_get_peer_caps(int *caps_len_ret);

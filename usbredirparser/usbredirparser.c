@@ -648,13 +648,25 @@ int usbredirparser_do_write(struct usbredirparser *parser_pub)
         if (w <= 0)
             return w;
 
+        /* See usbredirparser_write documentation */
+        if ((parser->flags & usbredirparser_fl_write_cb_owns_buffer) &&
+                w != wbuf->len)
+            abort();
+
         wbuf->pos += w;
         if (wbuf->pos == wbuf->len) {
             parser->write_buf = wbuf->next;
-            free(wbuf->buf);
+            if (!(parser->flags & usbredirparser_fl_write_cb_owns_buffer))
+                free(wbuf->buf);
             free(wbuf);
         }
     }
+}
+
+void usbredirparser_free_write_buffer(struct usbredirparser *parser,
+    uint8_t *data)
+{
+    free(data);
 }
 
 static void usbredirparser_queue(struct usbredirparser *parser_pub,

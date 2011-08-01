@@ -1,3 +1,9 @@
+usbredir-0.3.1 unreleased
+-------------------------
+-usbredirparser:
+ -add a usbredirparser_fl_write_cb_owns_buffer flag
+  See the comment in usbredirparser.h above usbredirparser_write for details.
+
 ubsredir-0.3 14 July 2011
 -------------------------
 -Initial release, start at version 0.3 to match the version of
