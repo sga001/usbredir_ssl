@@ -542,7 +542,7 @@ void usbredirhost_close(struct usbredirhost *host)
         usbredirhost_cancel_transfer(host, t);
         cancelled++;
     }
-    
+
     DEBUG("cancelled %d transfers on device close", cancelled);
     /* On linux libusb_handle_events* handles one completion before returning,
        so we need to call it once for each cancelled transfer */
@@ -581,6 +581,11 @@ int usbredirhost_has_data_to_write(struct usbredirhost *host)
 int usbredirhost_write_guest_data(struct usbredirhost *host)
 {
     return usbredirparser_do_write(host->parser);
+}
+
+void usbredirhost_free_write_buffer(struct usbredirhost *host, uint8_t *data)
+{
+    usbredirparser_free_write_buffer(host->parser, data);
 }
 
 /**************************************************************************/

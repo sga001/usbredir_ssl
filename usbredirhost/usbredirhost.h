@@ -89,4 +89,9 @@ int usbredirhost_has_data_to_write(struct usbredirhost *host);
    on the next call, and will continue doing so until it has succeeded! */
 int usbredirhost_write_guest_data(struct usbredirhost *host);
 
+/* When passing the usbredirhost_fl_write_cb_owns_buffer flag to
+   usbredirhost_open, this function must be called to free the data buffer
+   passed to write_guest_data_func when done with this buffer. */
+void usbredirhost_free_write_buffer(struct usbredirhost *host, uint8_t *data);
+
 #endif
