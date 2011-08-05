@@ -34,6 +34,10 @@ struct usbredirhost;
    read_guest_data_func / write_guest_data_func are called by the
    usbredirhost to read/write data from/to the usb-guest.
 
+   This function returns a pointer to the created usbredirhost object on
+   success, or NULL on failure. Note that the passed in libusb_device_handle
+   is closed on failure.
+
    Note:
    1) Both the usbredirtransport_log and the usbredirtransport_write
       callbacks may get called before this function completes.

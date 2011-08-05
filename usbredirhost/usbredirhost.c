@@ -426,6 +426,7 @@ struct usbredirhost *usbredirhost_open(
     if (!host) {
         log_func(func_priv, usbredirparser_error,
             "usbredirhost error: Out of memory allocating usbredirhost");
+        libusb_close(usb_dev_handle);
         return NULL;
     }
 
