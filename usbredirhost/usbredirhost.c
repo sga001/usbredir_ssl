@@ -473,6 +473,8 @@ struct usbredirhost *usbredirhost_open(
     }
     usbredirparser_init(host->parser, version, NULL, 0, parser_flags);
 
+    libusb_set_debug(host->ctx, host->verbose);
+
     r = libusb_get_configuration(host->handle, &host->active_config);
     if (r < 0) {
         ERROR("could not get active configuration: %d", r);
