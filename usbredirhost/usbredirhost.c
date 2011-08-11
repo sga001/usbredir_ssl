@@ -180,7 +180,7 @@ static int usbredirhost_write(void *priv, uint8_t *data, int count)
 static void usbredirhost_handle_disconnect(struct usbredirhost *host)
 {
     if (!host->disconnected) {
-        WARNING("device disconnected");
+        INFO("device disconnected");
         usbredirparser_send_device_disconnect(host->parser);
         host->disconnected = 1;
     }
@@ -368,7 +368,8 @@ static int usbredirhost_release(struct usbredirhost *host)
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
 
         r = libusb_release_interface(host->handle, n);
-        if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
+        if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND
+                  && r != LIBUSB_ERROR_NO_DEVICE) {
             ERROR("could not release interface %d (configuration %d): %d",
                   n, host->active_config, r);
             ret = usb_redir_ioerror;
@@ -381,6 +382,7 @@ static int usbredirhost_release(struct usbredirhost *host)
         if (host->driver_detached[i]) {
             r = libusb_attach_kernel_driver(host->handle, n);
             if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND /* No driver */
+                      && r != LIBUSB_ERROR_NO_DEVICE /* Device unplugged */
                       && r != LIBUSB_ERROR_BUSY /* driver rebound already */) {
                 ERROR("could not re-attach driver to interface %d (configuration %d): %d",
                       n, host->active_config, r);
