@@ -47,6 +47,7 @@ struct usbredirtransfer {
     struct usbredirhost *host;        /* Back pointer to the the redirhost */
     struct libusb_transfer *transfer; /* Back pointer to the libusb transfer */
     uint32_t id;
+    uint8_t cancelled;
     int iso_packet_idx;
     union {
         struct usb_redir_control_packet_header control_packet;
@@ -817,17 +818,18 @@ static void usbredirhost_iso_packet_complete(
 {
     struct usbredirtransfer *transfer = libusb_transfer->user_data;
     uint8_t ep = libusb_transfer->endpoint;
-    struct usbredirhost *host;
+    struct usbredirhost *host = transfer->host;
     int i, r, len, status;
 
-    if (!transfer)
-        return; /* Destroyed by cancel_iso_stream */
+    if (transfer->cancelled) {
+        usbredirhost_free_transfer(transfer);
+        return;
+    }
 
     /* Mark transfer completed (iow not submitted) */
     transfer->iso_packet_idx = 0;
 
     /* Check overal transfer status */
-    host = transfer->host;
     r = libusb_transfer->status;
     switch (usbredirhost_handle_iso_status(host, transfer->id, ep, r)) {
     case 0:
@@ -981,19 +983,7 @@ static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
         }
         if (do_free) {
             if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
-                /* Tell libusb to free the buffer and transfer when the
-                   transfer has completed (or was successfully cancelled) */
-                /* FIXME this will cause libusb to call plain free() on
-                   transfer->transfer->buffer. If it is using a different
-                   crt or we add support for plugging a different
-                   malloc/free into usbredirparser + host this is wrong */
-                transfer->transfer->flags = LIBUSB_TRANSFER_FREE_TRANSFER |
-                                            LIBUSB_TRANSFER_FREE_BUFFER;
-                /* Let the completion handler know that our transfer struct
-                   struct is gone / this packet is cancelled */
-                transfer->transfer->user_data = NULL;
-                /* Free our transfer struct (and only our struct) now */
-                free(transfer);
+                transfer->cancelled = 1;
             } else {
                 usbredirhost_free_transfer(transfer);
             }
@@ -1047,13 +1037,14 @@ static void usbredirhost_interrupt_packet_complete(
     struct usbredirtransfer *transfer = libusb_transfer->user_data;
     uint8_t ep = libusb_transfer->endpoint;
     struct usb_redir_interrupt_packet_header interrupt_packet;
-    struct usbredirhost *host;
+    struct usbredirhost *host = transfer->host;
     int len, status, r;
 
-    if (!transfer)
-        return; /* Destroyed by cancel_interrupt_in_transfer */
+    if (transfer->cancelled) {
+        usbredirhost_free_transfer(transfer);
+        return;
+    }
 
-    host = transfer->host;
     status = libusb_status_or_error_to_redir_status(host,
                                                     libusb_transfer->status);
     len = libusb_transfer->actual_length;
@@ -1165,20 +1156,7 @@ static int usbredirhost_cancel_interrupt_in_transfer(
         return 0; /* Already stopped */
 
     usbredirhost_cancel_transfer(host, transfer);
-    /* Tell libusb to free the buffer and transfer when the
-       transfer has completed (or was successfully cancelled) */
-    /* FIXME this will cause libusb to call plain free() on
-       transfer->transfer->buffer. If it is using a different
-       crt or we add support for plugging a different
-       malloc/free into usbredirparser + host this is wrong */
-    transfer->transfer->flags = LIBUSB_TRANSFER_FREE_TRANSFER |
-                                LIBUSB_TRANSFER_FREE_BUFFER;
-    /* Let the completion handler know that our transfer struct
-       struct is gone / this packet is cancelled */
-    transfer->transfer->user_data = NULL;
-    /* Free our transfer struct (and only our struct) now */
-    free(transfer);
-
+    transfer->cancelled = 1;
     host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
     return 1;
 }
