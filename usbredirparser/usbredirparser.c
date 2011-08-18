@@ -24,6 +24,19 @@
 #include <string.h>
 #include "usbredirparser.h"
 
+/* Locking convenience macros */
+#define LOCK(parser) \
+    do { \
+        if ((parser)->lock) \
+            (parser)->lock_func((parser)->lock); \
+    } while (0)
+
+#define UNLOCK(parser) \
+    do { \
+        if ((parser)->lock) \
+            (parser)->unlock_func((parser)->lock); \
+    } while (0)
+
 struct usbredirparser_buf {
     uint8_t *buf;
     int pos;
@@ -38,6 +51,11 @@ struct usbredirparser_priv {
 
     uint32_t our_caps[USB_REDIR_CAPS_SIZE];
     uint32_t peer_caps[USB_REDIR_CAPS_SIZE];
+
+    usbredirparser_lock lock_func;
+    usbredirparser_unlock unlock_func;
+    usbredirparser_free_lock free_lock_func;
+    void *lock;
 
     struct usb_redir_header header;
     uint8_t type_header[256];
@@ -112,7 +130,31 @@ void usbredirparser_destroy(struct usbredirparser *parser_pub)
         wbuf = next_wbuf;
     }
 
+    if (parser->lock)
+        parser->free_lock_func(parser->lock);
+
     free(parser);
+}
+
+int usbredirparser_set_locking_funcs(struct usbredirparser *parser_pub,
+    usbredirparser_alloc_lock alloc_lock_func,
+    usbredirparser_lock lock_func,
+    usbredirparser_unlock unlock_func,
+    usbredirparser_free_lock free_lock_func)
+{
+    struct usbredirparser_priv *parser =
+        (struct usbredirparser_priv *)parser_pub;
+
+    parser->lock_func = lock_func;
+    parser->unlock_func = unlock_func;
+    parser->free_lock_func = free_lock_func;
+
+    parser->lock = alloc_lock_func();
+    if (!parser->lock) {
+        ERROR("Out of memory allocating lock");
+        return -1;
+    }
+    return 0;
 }
 
 int usbredirparser_peer_has_cap(struct usbredirparser *parser_pub, int cap)
@@ -634,19 +676,22 @@ int usbredirparser_do_write(struct usbredirparser *parser_pub)
 {
     struct usbredirparser_priv *parser =
         (struct usbredirparser_priv *)parser_pub;
-    int w;
     struct usbredirparser_buf* wbuf;
+    int w, ret = 0;
 
+    LOCK(parser);
     for (;;) {    
         wbuf = parser->write_buf;
         if (!wbuf)
-            return 0;
+            break;
 
         w = wbuf->len - wbuf->pos;
         w = parser->callb.write_func(parser->callb.priv,
                                      wbuf->buf + wbuf->pos, w);
-        if (w <= 0)
-            return w;
+        if (w <= 0) {
+            ret = -1;
+            break;
+        }
 
         /* See usbredirparser_write documentation */
         if ((parser->flags & usbredirparser_fl_write_cb_owns_buffer) &&
@@ -661,6 +706,8 @@ int usbredirparser_do_write(struct usbredirparser *parser_pub)
             free(wbuf);
         }
     }
+    UNLOCK(parser);
+    return ret;
 }
 
 void usbredirparser_free_write_buffer(struct usbredirparser *parser,
@@ -719,17 +766,18 @@ static void usbredirparser_queue(struct usbredirparser *parser_pub,
     memcpy(type_header_out, type_header_in, type_header_len);
     memcpy(data_out, data_in, data_len);
 
+    LOCK(parser);
     if (!parser->write_buf) {
         parser->write_buf = new_wbuf;
-        return;
+    } else {
+        /* maybe we should limit the write_buf stack depth ? */
+        wbuf = parser->write_buf;
+        while (wbuf->next)
+            wbuf = wbuf->next;
+
+        wbuf->next = new_wbuf;
     }
-
-    /* maybe we should limit the write_buf stack depth ? */
-    wbuf = parser->write_buf;
-    while (wbuf->next)
-        wbuf = wbuf->next;
-
-    wbuf->next = new_wbuf;
+    UNLOCK(parser);
 }
 
 void usbredirparser_send_device_connect(struct usbredirparser *parser,

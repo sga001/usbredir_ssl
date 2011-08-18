@@ -46,6 +46,12 @@ typedef void (*usbredirparser_log)(void *priv, int level, const char *msg);
 typedef int (*usbredirparser_read)(void *priv, uint8_t *data, int count);
 typedef int (*usbredirparser_write)(void *priv, uint8_t *data, int count);
 
+/* Locking functions for use by multithread apps */
+typedef void *(*usbredirparser_alloc_lock)(void);
+typedef void (*usbredirparser_lock)(void *lock);
+typedef void (*usbredirparser_unlock)(void *lock);
+typedef void (*usbredirparser_free_lock)(void *lock);
+
 /* The below callbacks are called when a complete packet of the relevant
    type has been received.
 
@@ -169,6 +175,13 @@ void usbredirparser_init(struct usbredirparser *parser,
     const char *version, uint32_t *caps, int caps_len, int flags);
 
 void usbredirparser_destroy(struct usbredirparser *parser);
+
+/* See README.multi-thread */
+int usbredirparser_set_locking_funcs(struct usbredirparser *parser,
+    usbredirparser_alloc_lock alloc_lock_func,
+    usbredirparser_lock lock_func,
+    usbredirparser_unlock unlock_func,
+    usbredirparser_free_lock free_lock_func);
 
 int usbredirparser_peer_has_cap(struct usbredirparser *parser, int cap);
 

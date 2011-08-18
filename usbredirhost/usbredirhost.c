@@ -43,6 +43,19 @@
 #define EP2I(ep_address) (((ep_address & 0x80) >> 3) | (ep_address & 0x0f))
 #define I2EP(i) (((i & 0x10) << 3) | (i & 0x0f))
 
+/* Locking convenience macros */
+#define LOCK(host) \
+    do { \
+        if ((host)->lock) \
+            (host)->lock_func((host)->lock); \
+    } while (0)
+
+#define UNLOCK(host) \
+    do { \
+        if ((host)->lock) \
+            (host)->unlock_func((host)->lock); \
+    } while (0)
+
 struct usbredirtransfer {
     struct usbredirhost *host;        /* Back pointer to the the redirhost */
     struct libusb_transfer *transfer; /* Back pointer to the libusb transfer */
@@ -72,6 +85,13 @@ struct usbredirhost_ep {
 
 struct usbredirhost {
     struct usbredirparser *parser;
+
+    usbredirparser_lock lock_func;
+    usbredirparser_unlock unlock_func;
+    usbredirparser_free_lock free_lock_func;
+    void *lock;
+    void *disconnect_lock;
+
     usbredirparser_log log_func;
     usbredirparser_read read_func;
     usbredirparser_write write_func;
@@ -153,6 +173,8 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
 
 static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     uint8_t ep, int free);
+static int usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
+    uint8_t ep, int free);
 static int usbredirhost_cancel_interrupt_in_transfer(
     struct usbredirhost *host, uint8_t ep);
 static void usbredirhost_free_transfer(struct usbredirtransfer *transfer);
@@ -178,12 +200,21 @@ static int usbredirhost_write(void *priv, uint8_t *data, int count)
     return host->write_func(host->func_priv, data, count);
 }
 
+/* Can be called both from parser read callbacks as well as from libusb
+   packet completion callbacks */
 static void usbredirhost_handle_disconnect(struct usbredirhost *host)
 {
+    /* Disconnect uses its own lock to avoid needing nesting capable locks */
+    if (host->disconnect_lock) {
+        host->lock_func(host->disconnect_lock);
+    }
     if (!host->disconnected) {
         INFO("device disconnected");
         usbredirparser_send_device_disconnect(host->parser);
         host->disconnected = 1;
+    }
+    if (host->disconnect_lock) {
+        host->unlock_func(host->disconnect_lock);
     }
 }
 
@@ -238,6 +269,7 @@ static int usbredirhost_get_max_packetsize(uint16_t wMaxPacketSize)
     return size * packets_per_microframe;
 }
 
+/* Called from open/close and parser read callbacks */
 static void usbredirhost_parse_config(struct usbredirhost *host)
 {
     int i, j;
@@ -289,6 +321,7 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
     usbredirparser_send_ep_info(host->parser, &ep_info);
 }
 
+/* Called from open/close and parser read callbacks */
 static int usbredirhost_claim(struct usbredirhost *host)
 {
     int i, n, r, ret = usb_redir_success;
@@ -357,6 +390,7 @@ error:
     return ret;
 }
 
+/* Called from open/close and parser read callbacks */
 static int usbredirhost_release(struct usbredirhost *host)
 {
     int i, n, r, ret = usb_redir_success;
@@ -397,17 +431,6 @@ static int usbredirhost_release(struct usbredirhost *host)
 
     host->claimed = 0;
     return ret;
-}
-
-static void usbredirhost_cancel_transfer(
-    struct usbredirhost *host,
-    struct usbredirtransfer *transfer)
-{
-    /* This is inherently racy, some of the transfers we consider in flight
-       may have already completed, suppress libusb cancel error messages. */
-    libusb_set_debug(host->ctx, 0);
-    libusb_cancel_transfer(transfer->transfer);
-    libusb_set_debug(host->ctx, host->verbose);
 }
 
 struct usbredirhost *usbredirhost_open(
@@ -545,7 +568,7 @@ void usbredirhost_close(struct usbredirhost *host)
         }
     }
     for (t = host->transfers_head.next; t; t = t->next) {
-        usbredirhost_cancel_transfer(host, t);
+        libusb_cancel_transfer(t->transfer);
         cancelled++;
     }
 
@@ -571,7 +594,40 @@ void usbredirhost_close(struct usbredirhost *host)
     if (host->handle) {
         libusb_close(host->handle);
     }
+    if (host->lock) {
+        host->free_lock_func(host->lock);
+    }
+    if (host->disconnect_lock) {
+        host->free_lock_func(host->disconnect_lock);
+    }
     free(host);
+}
+
+int usbredirhost_set_locking_funcs(struct usbredirhost *host,
+    usbredirparser_alloc_lock alloc_lock_func,
+    usbredirparser_lock lock_func,
+    usbredirparser_unlock unlock_func,
+    usbredirparser_free_lock free_lock_func)
+{
+    host->lock_func = lock_func;
+    host->unlock_func = unlock_func;
+    host->free_lock_func = free_lock_func;
+
+    host->lock = alloc_lock_func();
+    if (!host->lock) {
+        ERROR("Out of memory allocating lock");
+        return -1;
+    }
+    host->disconnect_lock = alloc_lock_func();
+    if (!host->disconnect_lock) {
+        ERROR("Out of memory allocating lock");
+        return -1;
+    }
+
+    return usbredirparser_set_locking_funcs(host->parser,
+                                            alloc_lock_func,
+                                            lock_func, unlock_func,
+                                            free_lock_func);
 }
 
 int usbredirhost_read_guest_data(struct usbredirhost *host)
@@ -634,62 +690,64 @@ static void usbredirhost_add_transfer(struct usbredirhost *host,
 {
     struct usbredirtransfer *transfer = &host->transfers_head;
 
+    LOCK(host);
     while (transfer->next) {
         transfer = transfer->next;
     }
 
     new_transfer->prev = transfer;
     transfer->next = new_transfer;
+    UNLOCK(host);
 }
 
 static void usbredirhost_remove_and_free_transfer(
     struct usbredirtransfer *transfer)
 {
+    struct usbredirhost *host = transfer->host;
+
+    LOCK(host);
     if (transfer->next)
         transfer->next->prev = transfer->prev;
     if (transfer->prev)
         transfer->prev->next = transfer->next;
-
+    /*
+     * The free must be done with the lock held, see
+     * usbredirhost_cancel_data_packet().
+     */
     usbredirhost_free_transfer(transfer);
+    UNLOCK(host);
 }
 
-static struct usbredirtransfer *usbredirhost_find_transfer_by_id(
-    struct usbredirhost *host, uint32_t id)
-{
-    struct usbredirtransfer *transfer = &host->transfers_head;
-
-    while (transfer->next) {
-        if (transfer->id == id) {
-            return transfer;
-        }
-        transfer = transfer->next;
-    }
-    return NULL;
-}
-
+/* Called from close and parser read callbacks */
 static void usbredirhost_cancel_pending_urbs(struct usbredirhost *host)
 {
     struct usbredirtransfer *transfer = &host->transfers_head;
 
+    LOCK(host);
     while (transfer->next) {
-        usbredirhost_cancel_transfer(host, transfer);
+        libusb_cancel_transfer(transfer->transfer);
         transfer = transfer->next;
     }
+    UNLOCK(host);
 }
 
+/* Called from close and parser read callbacks */
 static void usbredirhost_cancel_pending_urbs_on_ep(
     struct usbredirhost *host, uint8_t ep)
 {
     struct usbredirtransfer *transfer = &host->transfers_head;
 
+    LOCK(host);
     while (transfer->next) {
         if (transfer->transfer->endpoint == ep) {
-            usbredirhost_cancel_transfer(host, transfer);
+            libusb_cancel_transfer(transfer->transfer);
         }
         transfer = transfer->next;
     }
+    UNLOCK(host);
 }
 
+/* Only called from read callbacks */
 static int usbredirhost_bInterfaceNumber_to_index(
     struct usbredirhost *host, uint8_t bInterfaceNumber)
 {
@@ -736,7 +794,8 @@ static void usbredirhost_send_iso_status(struct usbredirhost *host,
     usbredirparser_send_iso_stream_status(host->parser, id, &iso_stream_status);
 }
 
-static int usbredirhost_submit_iso_transfer(struct usbredirhost *host,
+/* Called from both parser read and packet complete callbacks */
+static int usbredirhost_submit_iso_transfer_unlocked(struct usbredirhost *host,
     struct usbredirtransfer *transfer)
 {
     int r;
@@ -746,12 +805,20 @@ static int usbredirhost_submit_iso_transfer(struct usbredirhost *host,
         uint8_t ep = transfer->transfer->endpoint;
         ERROR("submitting iso transfer on ep %02X: %d, stopping stream",
               (unsigned int)ep, r);
-        usbredirhost_cancel_iso_stream(host, ep, 1);
+        usbredirhost_cancel_iso_stream_unlocked(host, ep, 1);
         return libusb_status_or_error_to_redir_status(host, r);
     }
 
     transfer->iso_packet_idx = ISO_SUBMITTED_IDX;
     return usb_redir_success;
+}
+
+static int usbredirhost_submit_iso_transfer(struct usbredirhost *host,
+    struct usbredirtransfer *transfer)
+{
+    LOCK(host);
+    return usbredirhost_submit_iso_transfer_unlocked(host, transfer);
+    UNLOCK(host);
 }
 
 /* Return value:
@@ -777,19 +844,19 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
            and in case of an input stream resubmit the transfers */
         WARNING("iso stream on endpoint %02X stalled, clearing stall",
                 (unsigned int)ep);
-        usbredirhost_cancel_iso_stream(host, ep, 0);
+        usbredirhost_cancel_iso_stream_unlocked(host, ep, 0);
         r = libusb_clear_halt(host->handle, ep);
         if (r < 0) {
             usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
             /* Failed to clear stall, free iso buffers */
-            usbredirhost_cancel_iso_stream(host, ep, 1);
+            usbredirhost_cancel_iso_stream_unlocked(host, ep, 1);
             return 2;
         }
         if (ep & LIBUSB_ENDPOINT_IN) {
             for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
                 host->endpoint[EP2I(ep)].iso_transfer[i]->id =
                     i * host->endpoint[EP2I(ep)].iso_pkts_per_transfer;
-                status = usbredirhost_submit_iso_transfer(host,
+                status = usbredirhost_submit_iso_transfer_unlocked(host,
                                     host->endpoint[EP2I(ep)].iso_transfer[i]);
                 if (status != usb_redir_success) {
                     usbredirhost_send_iso_status(host, id, ep,
@@ -821,9 +888,10 @@ static void usbredirhost_iso_packet_complete(
     struct usbredirhost *host = transfer->host;
     int i, r, len, status;
 
+    LOCK(host);
     if (transfer->cancelled) {
         usbredirhost_free_transfer(transfer);
-        return;
+        goto unlock;
     }
 
     /* Mark transfer completed (iow not submitted) */
@@ -848,11 +916,11 @@ static void usbredirhost_iso_packet_complete(
             goto resubmit;
         } else {
             usbredirhost_send_iso_status(host, transfer->id, ep, status);
-            return;
+            goto unlock;
         }
         break;
     case 2:
-        return;
+        goto unlock;
     }
 
     /* Check per packet status and send ok input packets to usb-guest */
@@ -868,11 +936,11 @@ static void usbredirhost_iso_packet_complete(
                 len = 0;
             } else {
                 usbredirhost_send_iso_status(host, transfer->id, ep, status);
-                return; /* We send max one iso status message per urb */
+                goto unlock; /* We send max one iso status message per urb */
             }
             break;
         case 2:
-            return;
+            goto unlock;
         }
         if (ep & LIBUSB_ENDPOINT_IN) {
             struct usb_redir_iso_packet_header iso_packet = {
@@ -898,12 +966,14 @@ static void usbredirhost_iso_packet_complete(
 resubmit:
         transfer->id += (host->endpoint[EP2I(ep)].iso_transfer_count - 1) *
                         libusb_transfer->num_iso_packets;
-        status = usbredirhost_submit_iso_transfer(host, transfer);
+        status = usbredirhost_submit_iso_transfer_unlocked(host, transfer);
         if (status != usb_redir_success) {
             usbredirhost_send_iso_status(host, transfer->id, ep,
                                          usb_redir_stall);
         }
     }
+unlock:
+    UNLOCK(host);
 }
 
 static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
@@ -969,7 +1039,7 @@ alloc_error:
     return usb_redir_ioerror;
 }
 
-static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
+static int usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
     uint8_t ep, int do_free)
 {
     int i, cancelled = 0;
@@ -978,7 +1048,7 @@ static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
         transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
         if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
-            usbredirhost_cancel_transfer(host, transfer);
+            libusb_cancel_transfer(transfer->transfer);
             cancelled++;
         }
         if (do_free) {
@@ -999,6 +1069,14 @@ static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
         host->endpoint[EP2I(ep)].iso_transfer_count = 0;
     }
     return cancelled;
+}
+
+static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
+    uint8_t ep, int do_free)
+{
+    LOCK(host);
+    return usbredirhost_cancel_iso_stream(host, ep, do_free);
+    UNLOCK(host);
 }
 
 /**************************************************************************/
@@ -1040,11 +1118,6 @@ static void usbredirhost_interrupt_packet_complete(
     struct usbredirhost *host = transfer->host;
     int len, status, r;
 
-    if (transfer->cancelled) {
-        usbredirhost_free_transfer(transfer);
-        return;
-    }
-
     status = libusb_status_or_error_to_redir_status(host,
                                                     libusb_transfer->status);
     len = libusb_transfer->actual_length;
@@ -1062,6 +1135,12 @@ static void usbredirhost_interrupt_packet_complete(
     }
 
     /* Everything below is for input endpoints */
+    LOCK(host);
+    if (transfer->cancelled) {
+        usbredirhost_free_transfer(transfer);
+        goto unlock;
+    }
+
     usbredirhost_log_data(host, "interrupt data in:",
                           libusb_transfer->buffer, len);
     r = libusb_transfer->status;
@@ -1070,7 +1149,7 @@ static void usbredirhost_interrupt_packet_complete(
         break;
     case LIBUSB_TRANSFER_CANCELLED:
         /* intentionally stopped */
-        return;
+        goto unlock;
     case LIBUSB_TRANSFER_STALL:
         WARNING("interrupt endpoint %02X stalled, clearing stall", ep);
         r = libusb_clear_halt(host->handle, ep);
@@ -1080,13 +1159,13 @@ static void usbredirhost_interrupt_packet_complete(
                                                usb_redir_stall);
             usbredirhost_free_transfer(transfer);
             host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
-            return;
+            goto unlock;
         }
         transfer->id = 0;
         goto resubmit;
     case LIBUSB_TRANSFER_NO_DEVICE:
         usbredirhost_handle_disconnect(host);
-        return;
+        goto unlock;
     case LIBUSB_TRANSFER_OVERFLOW:
     case LIBUSB_TRANSFER_ERROR:
     case LIBUSB_TRANSFER_TIMED_OUT:
@@ -1107,6 +1186,8 @@ resubmit:
     if (status != usb_redir_success) {
         usbredirhost_send_interrupt_status(host, transfer->id, ep, status);
     }
+unlock:
+    UNLOCK(host);
 }
 
 static int usbredirhost_alloc_interrupt_in_transfer(struct usbredirhost *host,
@@ -1150,15 +1231,21 @@ static int usbredirhost_cancel_interrupt_in_transfer(
     struct usbredirhost *host, uint8_t ep)
 {
     struct usbredirtransfer *transfer;
+    int ret = 0;
 
+    LOCK(host);
     transfer = host->endpoint[EP2I(ep)].interrupt_in_transfer;
     if (!transfer)
-        return 0; /* Already stopped */
+        goto unlock; /* Already stopped */
 
-    usbredirhost_cancel_transfer(host, transfer);
+    libusb_cancel_transfer(transfer->transfer);
     transfer->cancelled = 1;
     host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
-    return 1;
+    ret = 1;
+unlock:
+    UNLOCK(host);
+
+    return ret;
 }
 
 /**************************************************************************/
@@ -1426,15 +1513,39 @@ static void usbredirhost_free_bulk_streams(void *priv, uint32_t id,
 static void usbredirhost_cancel_data_packet(void *priv, uint32_t id)
 {
     struct usbredirhost *host = priv;
-    struct usbredirtransfer *transfer;
+    struct usbredirtransfer *t;
 
-    transfer = usbredirhost_find_transfer_by_id(host, id);
-    if (!transfer) {
-        /* This is not an error, the transfer may have completed by the time
-           we receive the cancel */
-        return;
+    /*
+     * This is a bit tricky, we are run from a parser read callback, while
+     * at the same time the packet completion callback may run from another
+     * thread.
+     *
+     * Since the completion handler will remove the transter from our list
+     * and *free* the transfer, we must do the libusb_cancel_transfer()
+     * with the lock held to ensure that it is not freed while we try to
+     * cancel it.
+     *
+     * Doing this means libusb taking the transfer lock, while
+     * we are holding our own lock, this is ok, since libusb release the
+     * transfer lock before calling the packet completion callback, so there
+     * is no deadlock here.
+     */
+
+    LOCK(host);
+    for (t = host->transfers_head.next; t; t = t->next) {
+        if (t->id == id) {
+            break;
+        }
     }
-    usbredirhost_cancel_transfer(host, transfer);
+
+    /*
+     * Note not finding the transfer is not an error, the transfer may have
+     * completed by the time we receive the cancel.
+     */
+    if (t) {
+        libusb_cancel_transfer(t->transfer);
+    }
+    UNLOCK(host);
 }
 
 static void usbredirhost_control_packet_complete(

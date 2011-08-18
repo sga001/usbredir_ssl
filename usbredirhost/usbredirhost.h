@@ -75,6 +75,13 @@ struct usbredirhost *usbredirhost_open(
    callbacks may get called! */
 void usbredirhost_close(struct usbredirhost *host);
 
+/* See README.multi-thread */
+int usbredirhost_set_locking_funcs(struct usbredirhost *host,
+    usbredirparser_alloc_lock alloc_lock_func,
+    usbredirparser_lock lock_func,
+    usbredirparser_unlock unlock_func,
+    usbredirparser_free_lock free_lock_func);
+
 /* Call this whenever there is data ready for the usbredirhost to read from
    the usb-guest
    returns 0 on success, -1 if a read error happened, -2 if a parse error

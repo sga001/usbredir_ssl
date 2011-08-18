@@ -1,0 +1,73 @@
+libusbredirparser and libusbredirhost are *not* 100% thread-safe. They allow
+usage from multiple threads, but with limitations.
+
+The intended usage of the multi-threading support for libusbredirparser is to
+have one reader thread and allow writes / packet sends from multiple threads
+(including the reader thread). It is up to the app to deal with flushing
+writes by calling do_write itself. do_write may be called from multiple
+threads, libusbredirparser will serialize any calls to the write callback.
+
+The intended usage of the multi-threading support for libusbredirhost is to
+have one reader thread, one thread calling libusb's handle_events function
+and optionally also a separate writer thread.
+
+The above translates to some functions only allowing one caller at a time,
+while others allow multiple callers, see below for a detailed overview.
+
+In order to enable the multi-thread support in libusbredir* the app
+must provide a number of locking callback functions, by calling the
+libusbredir*_set_locking_funcs function, ie:
+
+int usbredirparser_set_locking_funcs(struct usbredirparser *parser,
+    usbredirparser_alloc_lock alloc_lock_func,
+    usbredirparser_lock lock_func,
+    usbredirparser_unlock unlock_func,
+    usbredirparser_free_lock free_lock_func);
+
+The app should call usbredirparser_set_locking_funcs immediately after
+usbredirparser_init, or call usbredirhost_set_locking_funcs immediately after
+usbredirhost_open. The app should not use libusbredir* from multiple threads
+in any way until this is done.
+
+Note this function will immediately call the alloc_lock_func a number of times,
+and it will fail if this functions returns NULL at any time. It returns 0 on
+success and -1 on error. If your alloc_lock_func cannot fail there is no
+need to check the return value of this function.
+
+Overview of per function multi-thread safeness
+----------------------------------------------
+
+usbredirparser:
+-Only one caller allowed at a time:
+ usbredirparser_create
+ usbredirparser_init
+ usbredirparser_destroy
+ usbredirparser_set_locking_funcs
+ usbredirparser_do_read
+
+-Multiple callers allowed:
+ usbredirparser_get_peer_caps (1)
+ usbredirparser_peer_has_cap (1)
+ usbredirparser_has_data_to_write
+ usbredirparser_do_write
+ usbredirparser_free_write_buffer
+ usbredirparser_free_packet_data
+ usbredirparser_send_*
+
+usbredirhost:
+-Only one caller allowed at a time:
+ usbredirhost_open
+ usbredirhost_close
+ usbredirhost_set_locking_funcs
+ usbredirhost_read_guest_data
+
+-Multiple callers allowed:
+ usbredirhost_has_data_to_write
+ usbredirhost_write_guest_data
+ usbredirhost_free_write_buffer
+ libusb_handle_events (2)
+
+(1) These only return the actual peer caps after the initial hello message
+    has been read.
+
+(2) libusb is thread safe itself, thus allowing multiple callers.
