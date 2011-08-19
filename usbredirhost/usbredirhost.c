@@ -1612,10 +1612,11 @@ static void usbredirhost_control_packet_complete(
     FLUSH(host);
 }
 
-static void usbredirhost_send_control_inval(struct usbredirhost *host,
-    uint32_t id, struct usb_redir_control_packet_header *control_packet)
+static void usbredirhost_send_control_status(struct usbredirhost *host,
+    uint32_t id, struct usb_redir_control_packet_header *control_packet,
+    uint8_t status)
 {
-    control_packet->status = usb_redir_inval;
+    control_packet->status = status;
     control_packet->length = 0;
     usbredirparser_send_control_packet(host->parser, id, control_packet,
                                        NULL, 0);
@@ -1632,10 +1633,8 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     int r;
 
     if (host->disconnected) {
-        control_packet->status = usb_redir_ioerror;
-        control_packet->length = 0;
-        usbredirparser_send_control_packet(host->parser, id, control_packet,
-                                           NULL, 0);
+        usbredirhost_send_control_status(host, id, control_packet,
+                                         usb_redir_ioerror);
         usbredirparser_free_packet_data(host->parser, data);
         FLUSH(host);
         return;
@@ -1644,7 +1643,8 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     /* Verify endpoint type */
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_control) {
         ERROR("control packet on non control ep %02X", ep);
-        usbredirhost_send_control_inval(host, id, control_packet);
+        usbredirhost_send_control_status(host, id, control_packet,
+                                         usb_redir_inval);
         usbredirparser_free_packet_data(host->parser, data);
         FLUSH(host);
         return;
@@ -1726,10 +1726,11 @@ static void usbredirhost_bulk_packet_complete(
     FLUSH(host);
 }
 
-static void usbredirhost_send_bulk_inval(struct usbredirhost *host,
-    uint32_t id, struct usb_redir_bulk_packet_header *bulk_packet)
+static void usbredirhost_send_bulk_status(struct usbredirhost *host,
+    uint32_t id, struct usb_redir_bulk_packet_header *bulk_packet,
+    uint8_t status)
 {
-    bulk_packet->status = usb_redir_inval;
+    bulk_packet->status = status;
     bulk_packet->length = 0;
     usbredirparser_send_bulk_packet(host->parser, id, bulk_packet, NULL, 0);
 }
@@ -1746,10 +1747,8 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
     DEBUG("bulk submit ep %02X len %d", ep, bulk_packet->length);
 
     if (host->disconnected) {
-        bulk_packet->status = usb_redir_ioerror;
-        bulk_packet->length = 0;
-        usbredirparser_send_bulk_packet(host->parser, id, bulk_packet,
-                                        NULL, 0);
+        usbredirhost_send_bulk_status(host, id, bulk_packet,
+                                      usb_redir_ioerror);
         usbredirparser_free_packet_data(host->parser, data);
         FLUSH(host);
         return;
@@ -1757,7 +1756,7 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_bulk) {
         ERROR("bulk packet on non bulk ep %02X", ep);
-        usbredirhost_send_bulk_inval(host, id, bulk_packet);
+        usbredirhost_send_bulk_status(host, id, bulk_packet, usb_redir_inval);
         usbredirparser_free_packet_data(host->parser, data);
         FLUSH(host);
         return;
@@ -1901,10 +1900,11 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     }
 }
 
-static void usbredirhost_send_interrupt_inval(struct usbredirhost *host,
-    uint32_t id, struct usb_redir_interrupt_packet_header *interrupt_packet)
+static void usbredirhost_send_interrupt_status(struct usbredirhost *host,
+    uint32_t id, struct usb_redir_interrupt_packet_header *interrupt_packet,
+    uint8_t status)
 {
-    interrupt_packet->status = usb_redir_inval;
+    interrupt_packet->status = status;
     interrupt_packet->length = 0;
     usbredirparser_send_interrupt_packet(host->parser, id, interrupt_packet,
                                          NULL, 0);
@@ -1922,10 +1922,8 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
     DEBUG("interrupt submit ep %02X len %d", ep, interrupt_packet->length);
 
     if (host->disconnected) {
-        interrupt_packet->status = usb_redir_ioerror;
-        interrupt_packet->length = 0;
-        usbredirparser_send_interrupt_packet(host->parser, id,
-                                             interrupt_packet, NULL, 0);
+        usbredirhost_send_interrupt_status(host, id, interrupt_packet,
+                                           usb_redir_ioerror);
         usbredirparser_free_packet_data(host->parser, data);
         FLUSH(host);
         return;
@@ -1933,7 +1931,8 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_interrupt) {
         ERROR("received interrupt packet for non interrupt ep %02X", ep);
-        usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
+        usbredirhost_send_interrupt_status(host, id, interrupt_packet,
+                                           usb_redir_inval);
         usbredirparser_free_packet_data(host->parser, data);
         FLUSH(host);
         return;
@@ -1941,7 +1940,8 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
 
     if (data_len > host->endpoint[EP2I(ep)].max_packetsize) {
         ERROR("received interrupt out packet is larger than wMaxPacketSize");
-        usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
+        usbredirhost_send_interrupt_status(host, id, interrupt_packet,
+                                           usb_redir_inval);
         usbredirparser_free_packet_data(host->parser, data);
         FLUSH(host);
         return;
