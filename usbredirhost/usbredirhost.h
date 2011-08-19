@@ -26,6 +26,8 @@
 
 struct usbredirhost;
 
+typedef void (*usbredirhost_flush_writes)(void *priv);
+
 /* This function *takes ownership of* the passed in libusb_device_handle
    and sends the initial usb_redir_hello packet to the usb-guest.
 
@@ -81,6 +83,9 @@ int usbredirhost_set_locking_funcs(struct usbredirhost *host,
     usbredirparser_lock lock_func,
     usbredirparser_unlock unlock_func,
     usbredirparser_free_lock free_lock_func);
+
+void usbredirhost_set_flush_writes_callback(struct usbredirhost *host,
+    usbredirhost_flush_writes flush_writes_func);
 
 /* Call this whenever there is data ready for the usbredirhost to read from
    the usb-guest

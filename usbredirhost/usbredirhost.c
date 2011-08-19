@@ -56,6 +56,12 @@
             (host)->unlock_func((host)->lock); \
     } while (0)
 
+#define FLUSH(host) \
+    do { \
+        if ((host)->flush_writes_func) \
+            (host)->flush_writes_func((host)->func_priv); \
+    } while (0)
+
 struct usbredirtransfer {
     struct usbredirhost *host;        /* Back pointer to the the redirhost */
     struct libusb_transfer *transfer; /* Back pointer to the libusb transfer */
@@ -95,6 +101,7 @@ struct usbredirhost {
     usbredirparser_log log_func;
     usbredirparser_read read_func;
     usbredirparser_write write_func;
+    usbredirhost_flush_writes flush_writes_func;
     void *func_priv;
     int verbose;
     libusb_context *ctx;
@@ -540,6 +547,7 @@ struct usbredirhost *usbredirhost_open(
     device_connect.product_id = desc.idProduct;
 
     usbredirparser_send_device_connect(host->parser, &device_connect);
+    FLUSH(host);
 
     return host;
 }
@@ -628,6 +636,12 @@ int usbredirhost_set_locking_funcs(struct usbredirhost *host,
                                             alloc_lock_func,
                                             lock_func, unlock_func,
                                             free_lock_func);
+}
+
+void usbredirhost_set_flush_writes_callback(struct usbredirhost *host,
+    usbredirhost_flush_writes flush_writes_func)
+{
+    host->flush_writes_func = flush_writes_func;
 }
 
 int usbredirhost_read_guest_data(struct usbredirhost *host)
@@ -974,6 +988,7 @@ resubmit:
     }
 unlock:
     UNLOCK(host);
+    FLUSH(host);
 }
 
 static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
@@ -1131,6 +1146,7 @@ static void usbredirhost_interrupt_packet_complete(
         usbredirparser_send_interrupt_packet(host->parser, transfer->id,
                                              &interrupt_packet, NULL, 0);
         usbredirhost_remove_and_free_transfer(transfer);
+        FLUSH(host);
         return;
     }
 
@@ -1188,6 +1204,7 @@ resubmit:
     }
 unlock:
     UNLOCK(host);
+    FLUSH(host);
 }
 
 static int usbredirhost_alloc_interrupt_in_transfer(struct usbredirhost *host,
@@ -1266,6 +1283,7 @@ static void usbredirhost_reset(void *priv)
     } else {
         ERROR("resetting device: %d", r);
         usbredirhost_handle_disconnect(host);
+        FLUSH(host);
     }
 }
 
@@ -1320,6 +1338,7 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
 exit:
     status.configuration = host->active_config;
     usbredirparser_send_configuration_status(host->parser, id, &status);
+    FLUSH(host);
 }
 
 static void usbredirhost_get_configuration(void *priv, uint32_t id)
@@ -1330,6 +1349,7 @@ static void usbredirhost_get_configuration(void *priv, uint32_t id)
     status.status = usb_redir_success;
     status.configuration = host->active_config;
     usbredirparser_send_configuration_status(host->parser, id, &status);
+    FLUSH(host);
 }
 
 static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
@@ -1390,6 +1410,7 @@ exit:
 exit_unknown_interface:
     status.interface = set_alt_setting->interface;
     usbredirparser_send_alt_setting_status(host->parser, id, &status);
+    FLUSH(host);
 }
 
 static void usbredirhost_get_alt_setting(void *priv, uint32_t id,
@@ -1411,6 +1432,7 @@ static void usbredirhost_get_alt_setting(void *priv, uint32_t id,
 
     status.interface = get_alt_setting->interface;
     usbredirparser_send_alt_setting_status(host->parser, id, &status);
+    FLUSH(host);
 }
 
 static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
@@ -1422,6 +1444,7 @@ static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
 
     if (host->disconnected) {
         usbredirhost_send_iso_status(host, id, ep, usb_redir_ioerror);
+        FLUSH(host);
         return;
     }
 
@@ -1429,6 +1452,7 @@ static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
                    start_iso_stream->pkts_per_urb, start_iso_stream->no_urbs);
     if (status != usb_redir_success) {
         usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
+        FLUSH(host);
         return;
     }
 
@@ -1441,12 +1465,14 @@ static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
                          host->endpoint[EP2I(ep)].iso_transfer[i]);
             if (status != usb_redir_success) {
                 usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
+                FLUSH(host);
                 return;
             }
         }
         host->endpoint[EP2I(ep)].iso_started = 1;
     }
     usbredirhost_send_iso_status(host, id, ep, usb_redir_success);
+    FLUSH(host);
 }
 
 static void usbredirhost_stop_iso_stream(void *priv, uint32_t id,
@@ -1457,6 +1483,7 @@ static void usbredirhost_stop_iso_stream(void *priv, uint32_t id,
 
     usbredirhost_cancel_iso_stream(host, ep, 1);
     usbredirhost_send_iso_status(host, id, ep, usb_redir_success);
+    FLUSH(host);
 }
 
 static void usbredirhost_start_interrupt_receiving(void *priv, uint32_t id,
@@ -1468,22 +1495,26 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint32_t id,
 
     if (host->disconnected) {
         usbredirhost_send_interrupt_status(host, id, ep, usb_redir_ioerror);
+        FLUSH(host);
         return;
     }
 
     if (host->endpoint[EP2I(ep)].interrupt_in_transfer) {
         ERROR("received interrupt start for already active ep %02X", ep);
         usbredirhost_send_interrupt_status(host, id, ep, usb_redir_inval);
+        FLUSH(host);
         return;
     }
 
     status = usbredirhost_alloc_interrupt_in_transfer(host, ep);
     if (status != usb_redir_success) {
         usbredirhost_send_interrupt_status(host, id, ep, usb_redir_stall);
+        FLUSH(host);
         return;
     }
     status = usbredirhost_submit_interrupt_in_transfer(host, ep);
     usbredirhost_send_interrupt_status(host, id, ep, status);
+    FLUSH(host);
 }
 
 static void usbredirhost_stop_interrupt_receiving(void *priv, uint32_t id,
@@ -1494,6 +1525,7 @@ static void usbredirhost_stop_interrupt_receiving(void *priv, uint32_t id,
 
     usbredirhost_cancel_interrupt_in_transfer(host, ep);
     usbredirhost_send_interrupt_status(host, id, ep, usb_redir_success);
+    FLUSH(host);
 }
 
 static void usbredirhost_alloc_bulk_streams(void *priv, uint32_t id,
@@ -1575,6 +1607,7 @@ static void usbredirhost_control_packet_complete(
     }
 
     usbredirhost_remove_and_free_transfer(transfer);
+    FLUSH(host);
 }
 
 static void usbredirhost_send_control_inval(struct usbredirhost *host,
@@ -1602,6 +1635,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
         usbredirparser_send_control_packet(host->parser, id, control_packet,
                                            NULL, 0);
         usbredirparser_free_packet_data(host->parser, data);
+        FLUSH(host);
         return;
     }
 
@@ -1610,6 +1644,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
         ERROR("control packet on non control ep %02X", ep);
         usbredirhost_send_control_inval(host, id, control_packet);
         usbredirparser_free_packet_data(host->parser, data);
+        FLUSH(host);
         return;
     }
 
@@ -1686,6 +1721,7 @@ static void usbredirhost_bulk_packet_complete(
     }
 
     usbredirhost_remove_and_free_transfer(transfer);
+    FLUSH(host);
 }
 
 static void usbredirhost_send_bulk_inval(struct usbredirhost *host,
@@ -1713,6 +1749,7 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
         usbredirparser_send_bulk_packet(host->parser, id, bulk_packet,
                                         NULL, 0);
         usbredirparser_free_packet_data(host->parser, data);
+        FLUSH(host);
         return;
     }
 
@@ -1720,6 +1757,7 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
         ERROR("bulk packet on non bulk ep %02X", ep);
         usbredirhost_send_bulk_inval(host, id, bulk_packet);
         usbredirparser_free_packet_data(host->parser, data);
+        FLUSH(host);
         return;
     }
 
@@ -1771,6 +1809,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     if (host->disconnected) {
         usbredirhost_send_iso_status(host, id, ep, usb_redir_ioerror);
         usbredirparser_free_packet_data(host->parser, data);
+        FLUSH(host);
         return;
     }
 
@@ -1778,6 +1817,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
         ERROR("received iso packet for non iso ep %02X", ep);
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
         usbredirparser_free_packet_data(host->parser, data);
+        FLUSH(host);
         return;
     }
 
@@ -1785,6 +1825,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
         ERROR("received iso out packet for non started iso stream");
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
         usbredirparser_free_packet_data(host->parser, data);
+        FLUSH(host);
         return;
     }
 
@@ -1792,6 +1833,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
         ERROR("received iso out packet is larger than wMaxPacketSize");
         usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
         usbredirparser_free_packet_data(host->parser, data);
+        FLUSH(host);
         return;
     }
 
@@ -1829,6 +1871,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
             status = usbredirhost_submit_iso_transfer(host, transfer);
             if (status != usb_redir_success) {
                 usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
+                FLUSH(host);
                 return;
             }
         }
@@ -1847,6 +1890,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
                 if (status != usb_redir_success) {
                     usbredirhost_send_iso_status(host, id, ep,
                                                  usb_redir_stall);
+                    FLUSH(host);
                     return;
                 }
             }
@@ -1881,6 +1925,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
         usbredirparser_send_interrupt_packet(host->parser, id,
                                              interrupt_packet, NULL, 0);
         usbredirparser_free_packet_data(host->parser, data);
+        FLUSH(host);
         return;
     }
 
@@ -1888,6 +1933,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
         ERROR("received interrupt packet for non interrupt ep %02X", ep);
         usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
         usbredirparser_free_packet_data(host->parser, data);
+        FLUSH(host);
         return;
     }
 
@@ -1895,6 +1941,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
         ERROR("received interrupt out packet is larger than wMaxPacketSize");
         usbredirhost_send_interrupt_inval(host, id, interrupt_packet);
         usbredirparser_free_packet_data(host->parser, data);
+        FLUSH(host);
         return;
     }
 
