@@ -1096,7 +1096,7 @@ static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
 
 /**************************************************************************/
 
-static void usbredirhost_send_interrupt_status(struct usbredirhost *host,
+static void usbredirhost_send_interrupt_recv_status(struct usbredirhost *host,
     uint32_t id, uint8_t endpoint, uint8_t status)
 {
     struct usb_redir_interrupt_receiving_status_header interrupt_status;
@@ -1171,8 +1171,8 @@ static void usbredirhost_interrupt_packet_complete(
         r = libusb_clear_halt(host->handle, ep);
         if (r < 0) {
             /* Failed to clear stall, stop receiving */
-            usbredirhost_send_interrupt_status(host, transfer->id, ep,
-                                               usb_redir_stall);
+            usbredirhost_send_interrupt_recv_status(host, transfer->id, ep,
+                                                    usb_redir_stall);
             usbredirhost_free_transfer(transfer);
             host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
             goto unlock;
@@ -1200,7 +1200,8 @@ static void usbredirhost_interrupt_packet_complete(
 resubmit:
     status = usbredirhost_submit_interrupt_in_transfer(host, ep);
     if (status != usb_redir_success) {
-        usbredirhost_send_interrupt_status(host, transfer->id, ep, status);
+        usbredirhost_send_interrupt_recv_status(host, transfer->id, ep,
+                                                status);
     }
 unlock:
     UNLOCK(host);
@@ -1494,26 +1495,27 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint32_t id,
     int status;
 
     if (host->disconnected) {
-        usbredirhost_send_interrupt_status(host, id, ep, usb_redir_ioerror);
+        usbredirhost_send_interrupt_recv_status(host, id, ep,
+                                                usb_redir_ioerror);
         FLUSH(host);
         return;
     }
 
     if (host->endpoint[EP2I(ep)].interrupt_in_transfer) {
         ERROR("received interrupt start for already active ep %02X", ep);
-        usbredirhost_send_interrupt_status(host, id, ep, usb_redir_inval);
+        usbredirhost_send_interrupt_recv_status(host, id, ep, usb_redir_inval);
         FLUSH(host);
         return;
     }
 
     status = usbredirhost_alloc_interrupt_in_transfer(host, ep);
     if (status != usb_redir_success) {
-        usbredirhost_send_interrupt_status(host, id, ep, usb_redir_stall);
+        usbredirhost_send_interrupt_recv_status(host, id, ep, usb_redir_stall);
         FLUSH(host);
         return;
     }
     status = usbredirhost_submit_interrupt_in_transfer(host, ep);
-    usbredirhost_send_interrupt_status(host, id, ep, status);
+    usbredirhost_send_interrupt_recv_status(host, id, ep, status);
     FLUSH(host);
 }
 
@@ -1524,7 +1526,7 @@ static void usbredirhost_stop_interrupt_receiving(void *priv, uint32_t id,
     uint8_t ep = stop_interrupt_receiving->endpoint;
 
     usbredirhost_cancel_interrupt_in_transfer(host, ep);
-    usbredirhost_send_interrupt_status(host, id, ep, usb_redir_success);
+    usbredirhost_send_interrupt_recv_status(host, id, ep, usb_redir_success);
     FLUSH(host);
 }
 
