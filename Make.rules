@@ -1,7 +1,7 @@
 USBREDIR_VERSION=0.3.1
 
 # These ones can be overriden from the cmdline
-CFLAGS  = -g -O2 -Wall -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes
+CFLAGS  = -g -O2 -Wall -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Werror
 PREFIX  = /usr/local
 LIBDIR  = $(PREFIX)/lib
 SBINDIR = $(PREFIX)/sbin
