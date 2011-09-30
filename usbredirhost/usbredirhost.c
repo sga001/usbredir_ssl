@@ -1090,7 +1090,7 @@ static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     uint8_t ep, int do_free)
 {
     LOCK(host);
-    return usbredirhost_cancel_iso_stream(host, ep, do_free);
+    return usbredirhost_cancel_iso_stream_unlocked(host, ep, do_free);
     UNLOCK(host);
 }
 
