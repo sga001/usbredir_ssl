@@ -230,7 +230,8 @@ usb_redir_device_disconnect
 ---------------------------
 
 usb_redir_header.type:    usb_redir_device_disconnect
-usb_redir_header.length:  0 (always as this is an unsolicited packet)
+usb_redir_header.length:  0
+usb_redir_header.id:      0 (always as this is an unsolicited packet)
 
 No packet type specific header.
 
