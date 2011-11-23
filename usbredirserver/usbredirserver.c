@@ -19,6 +19,8 @@
    along with this library; if not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "config.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -35,7 +37,8 @@
 #include <netdb.h>
 #include "usbredirhost.h"
 
-#define VERSION "usbredirserver " USBREDIR_VERSION
+
+#define SERVER_VERSION "usbredirserver " PACKAGE_VERSION
 
 static int verbose = usbredirparser_info;
 static int client_fd, running = 1;
@@ -350,7 +353,7 @@ int main(int argc, char *argv[])
 
         host = usbredirhost_open(ctx, handle, usbredirserver_log,
                                  usbredirserver_read, usbredirserver_write,
-                                 NULL, VERSION, verbose, 0);
+                                 NULL, SERVER_VERSION, verbose, 0);
         if (!host)
             exit(1);
         run_main_loop();

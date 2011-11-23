@@ -19,6 +19,8 @@
    along with this library; if not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "config.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -39,7 +41,7 @@
 #define EP2I(ep_address) (((ep_address & 0x80) >> 3) | (ep_address & 0x0f))
 #define I2EP(i) (((i & 0x10) << 3) | (i & 0x0f))
 
-#define VERSION "usbredirtestclient " USBREDIR_VERSION
+#define TESTCLIENT_VERSION "usbredirtestclient " PACKAGE_VERSION
 
 static void usbredirtestclient_device_connect(void *priv,
     struct usb_redir_device_connect_header *device_connect);
@@ -283,7 +285,7 @@ int main(int argc, char *argv[])
     parser->bulk_packet_func = usbredirtestclient_bulk_packet;
     parser->iso_packet_func = usbredirtestclient_iso_packet;
     parser->interrupt_packet_func = usbredirtestclient_interrupt_packet;
-    usbredirparser_init(parser, VERSION, NULL, 0, 0);
+    usbredirparser_init(parser, TESTCLIENT_VERSION, NULL, 0, 0);
 
     /* Queue a reset + set config the other test commands will be send in
        response to the status packets of previous commands */

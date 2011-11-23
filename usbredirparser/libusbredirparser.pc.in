@@ -1,0 +1,9 @@
+prefix=@prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: libusbredirparser
+Description: usbredirparser library
+Version: @VERSION@
+Libs: -L${libdir} -lusbredirparser
+Cflags: -I${includedir}

@@ -1,0 +1,1 @@
+SUBDIRS = usbredirparser usbredirhost usbredirserver usbredirtestclient
