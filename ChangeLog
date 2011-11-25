@@ -1,18 +1,25 @@
-usbredir-0.3.1 unreleased
+usbredir-0.3.2 unreleased
 -------------------------
+-usbredirparser:
+ -limited multi-thread safeness, see README.multi-thread
+
+-usbredirhost:
+ -limited multi-thread safeness, see README.multi-thread
+
+
+usbredir-0.3.1 18 August 2011
+-----------------------------
 -usbredirparser:
  -add a usbredirparser_fl_write_cb_owns_buffer flag
   See the comment in usbredirparser.h above usbredirparser_write for details.
  -add a usbredirparser_free_packet_data function for symetry with
   usbredirparser_free_write_buffer
- -limited multi-thread safeness, see README.multi-thread
 
 -usbredirhost:
  -Fix device resets
  -Add a flags parameter to usbredirhost_open, this accepts the following flags:
   usbredirhost_fl_write_cb_owns_buffer
  -The flags parameter causes an ABI breakage, new soname: libusbredirhost.so.1
- -limited multi-thread safeness, see README.multi-thread
 
 -usbredirserver:
  -Fix -v flag
