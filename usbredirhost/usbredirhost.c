@@ -828,14 +828,6 @@ static int usbredirhost_submit_iso_transfer_unlocked(struct usbredirhost *host,
     return usb_redir_success;
 }
 
-static int usbredirhost_submit_iso_transfer(struct usbredirhost *host,
-    struct usbredirtransfer *transfer)
-{
-    LOCK(host);
-    return usbredirhost_submit_iso_transfer_unlocked(host, transfer);
-    UNLOCK(host);
-}
-
 /* Return value:
     0 All ok
     1 Packet borked, continue with next packet / urb
@@ -1444,18 +1436,18 @@ static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
     int i, status;
     uint8_t ep = start_iso_stream->endpoint;
 
+    LOCK(host);
+
     if (host->disconnected) {
-        usbredirhost_send_iso_status(host, id, ep, usb_redir_ioerror);
-        FLUSH(host);
-        return;
+        status = usb_redir_ioerror;
+        goto leave;
     }
 
     status = usbredirhost_alloc_iso_stream(host, ep,
                    start_iso_stream->pkts_per_urb, start_iso_stream->no_urbs);
     if (status != usb_redir_success) {
-        usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
-        FLUSH(host);
-        return;
+        status = usb_redir_stall;
+        goto leave;
     }
 
     /* For input endpoints submit the transfers now */
@@ -1463,17 +1455,18 @@ static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
         for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
             host->endpoint[EP2I(ep)].iso_transfer[i]->id =
                 i * host->endpoint[EP2I(ep)].iso_pkts_per_transfer;
-            status = usbredirhost_submit_iso_transfer(host,
+            status = usbredirhost_submit_iso_transfer_unlocked(host,
                          host->endpoint[EP2I(ep)].iso_transfer[i]);
             if (status != usb_redir_success) {
-                usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
-                FLUSH(host);
-                return;
+                status = usb_redir_stall;
+                goto leave;
             }
         }
         host->endpoint[EP2I(ep)].iso_started = 1;
     }
-    usbredirhost_send_iso_status(host, id, ep, usb_redir_success);
+leave:
+    UNLOCK(host);
+    usbredirhost_send_iso_status(host, id, ep, status);
     FLUSH(host);
 }
 
@@ -1806,37 +1799,31 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     struct usbredirhost *host = priv;
     uint8_t ep = iso_packet->endpoint;
     struct usbredirtransfer *transfer;
-    int i, j, status;
+    int i, j, status = usb_redir_success;
+
+    LOCK(host);
 
     if (host->disconnected) {
-        usbredirhost_send_iso_status(host, id, ep, usb_redir_ioerror);
-        usbredirparser_free_packet_data(host->parser, data);
-        FLUSH(host);
-        return;
+        status = usb_redir_ioerror;
+        goto leave;
     }
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_iso) {
         ERROR("received iso packet for non iso ep %02X", ep);
-        usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
-        usbredirparser_free_packet_data(host->parser, data);
-        FLUSH(host);
-        return;
+        status = usb_redir_inval;
+        goto leave;
     }
 
     if (host->endpoint[EP2I(ep)].iso_transfer_count == 0) {
         ERROR("received iso out packet for non started iso stream");
-        usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
-        usbredirparser_free_packet_data(host->parser, data);
-        FLUSH(host);
-        return;
+        status = usb_redir_inval;
+        goto leave;
     }
 
     if (data_len > host->endpoint[EP2I(ep)].max_packetsize) {
         ERROR("received iso out packet is larger than wMaxPacketSize");
-        usbredirhost_send_iso_status(host, id, ep, usb_redir_inval);
-        usbredirparser_free_packet_data(host->parser, data);
-        FLUSH(host);
-        return;
+        status = usb_redir_inval;
+        goto leave;
     }
 
     i = host->endpoint[EP2I(ep)].iso_out_idx;
@@ -1844,8 +1831,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     j = transfer->iso_packet_idx;
     if (j == ISO_SUBMITTED_IDX) {
         WARNING("overflow of iso out queue on ep: %02X, dropping packet", ep);
-        usbredirparser_free_packet_data(host->parser, data);
-        return;
+        goto leave;
     }
 
     /* Store the id of the first packet in the urb */
@@ -1855,7 +1841,6 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     memcpy(libusb_get_iso_packet_buffer(transfer->transfer, j),
            data, data_len);
     transfer->transfer->iso_packet_desc[j].length = data_len;
-    usbredirparser_free_packet_data(host->parser, data);
     DEBUG("iso-in queue ep %02X urb %d pkt %d len %d id %d",
            ep, i, j, data_len, transfer->id);
 
@@ -1870,11 +1855,10 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     if (host->endpoint[EP2I(ep)].iso_started) {
         if (transfer->iso_packet_idx ==
                 host->endpoint[EP2I(ep)].iso_pkts_per_transfer) {
-            status = usbredirhost_submit_iso_transfer(host, transfer);
+            status = usbredirhost_submit_iso_transfer_unlocked(host, transfer);
             if (status != usb_redir_success) {
-                usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
-                FLUSH(host);
-                return;
+                status = usb_redir_stall;
+                goto leave;
             }
         }
     } else {
@@ -1887,17 +1871,23 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
             DEBUG("iso-in starting stream on ep %02X", ep);
             for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count / 2;
                     i++) {
-                status = usbredirhost_submit_iso_transfer(host,
+                status = usbredirhost_submit_iso_transfer_unlocked(host,
                                     host->endpoint[EP2I(ep)].iso_transfer[i]);
                 if (status != usb_redir_success) {
-                    usbredirhost_send_iso_status(host, id, ep,
-                                                 usb_redir_stall);
-                    FLUSH(host);
-                    return;
+                    status = usb_redir_stall;
+                    goto leave;
                 }
             }
             host->endpoint[EP2I(ep)].iso_started = 1;
         }
+    }
+
+leave:
+    UNLOCK(host);
+    usbredirparser_free_packet_data(host->parser, data);
+    if (status != usb_redir_success) {
+        usbredirhost_send_iso_status(host, id, ep, status);
+        FLUSH(host);
     }
 }
 
