@@ -1588,6 +1588,9 @@ static void usbredirhost_control_packet_complete(
                                                   libusb_transfer->status);
     control_packet.length = libusb_transfer->actual_length;
 
+    DEBUG("control complete ep %02X status %d len %d", control_packet.endpoint,
+          control_packet.status, control_packet.length);
+
     if (control_packet.endpoint & LIBUSB_ENDPOINT_IN) {
         usbredirhost_log_data(host, "ctrl data in:",
                          libusb_transfer->buffer + LIBUSB_CONTROL_SETUP_SIZE,
