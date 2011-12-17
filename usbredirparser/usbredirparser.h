@@ -156,6 +156,11 @@ struct usbredirparser {
     usbredirparser_bulk_packet bulk_packet_func;
     usbredirparser_iso_packet iso_packet_func;
     usbredirparser_interrupt_packet interrupt_packet_func;
+    /* usbredir 0.3.2 new non packet callbacks (for multi-thread locking) */
+    usbredirparser_alloc_lock alloc_lock_func;
+    usbredirparser_lock lock_func;
+    usbredirparser_unlock unlock_func;
+    usbredirparser_free_lock free_lock_func;
 };
 
 /* Allocate a usbredirparser, after this the app should set the callback app
@@ -175,13 +180,6 @@ void usbredirparser_init(struct usbredirparser *parser,
     const char *version, uint32_t *caps, int caps_len, int flags);
 
 void usbredirparser_destroy(struct usbredirparser *parser);
-
-/* See README.multi-thread */
-int usbredirparser_set_locking_funcs(struct usbredirparser *parser,
-    usbredirparser_alloc_lock alloc_lock_func,
-    usbredirparser_lock lock_func,
-    usbredirparser_unlock unlock_func,
-    usbredirparser_free_lock free_lock_func);
 
 int usbredirparser_peer_has_cap(struct usbredirparser *parser, int cap);
 

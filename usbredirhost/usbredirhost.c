@@ -48,13 +48,13 @@
 #define LOCK(host) \
     do { \
         if ((host)->lock) \
-            (host)->lock_func((host)->lock); \
+            (host)->parser->lock_func((host)->lock); \
     } while (0)
 
 #define UNLOCK(host) \
     do { \
         if ((host)->lock) \
-            (host)->unlock_func((host)->lock); \
+            (host)->parser->unlock_func((host)->lock); \
     } while (0)
 
 #define FLUSH(host) \
@@ -93,9 +93,6 @@ struct usbredirhost_ep {
 struct usbredirhost {
     struct usbredirparser *parser;
 
-    usbredirparser_lock lock_func;
-    usbredirparser_unlock unlock_func;
-    usbredirparser_free_lock free_lock_func;
     void *lock;
     void *disconnect_lock;
 
@@ -214,7 +211,7 @@ static void usbredirhost_handle_disconnect(struct usbredirhost *host)
 {
     /* Disconnect uses its own lock to avoid needing nesting capable locks */
     if (host->disconnect_lock) {
-        host->lock_func(host->disconnect_lock);
+        host->parser->lock_func(host->disconnect_lock);
     }
     if (!host->disconnected) {
         INFO("device disconnected");
@@ -222,7 +219,7 @@ static void usbredirhost_handle_disconnect(struct usbredirhost *host)
         host->disconnected = 1;
     }
     if (host->disconnect_lock) {
-        host->unlock_func(host->disconnect_lock);
+        host->parser->unlock_func(host->disconnect_lock);
     }
 }
 
@@ -449,6 +446,25 @@ struct usbredirhost *usbredirhost_open(
     usbredirparser_write write_guest_data_func,
     void *func_priv, const char *version, int verbose, int flags)
 {
+    return usbredirhost_open_full(usb_ctx, usb_dev_handle, log_func,
+                                  read_guest_data_func, write_guest_data_func,
+                                  NULL, NULL, NULL, NULL, NULL,
+                                  func_priv, version, verbose, flags);
+}
+
+struct usbredirhost *usbredirhost_open_full(
+    libusb_context *usb_ctx,
+    libusb_device_handle *usb_dev_handle,
+    usbredirparser_log log_func,
+    usbredirparser_read  read_guest_data_func,
+    usbredirparser_write write_guest_data_func,
+    usbredirhost_flush_writes flush_writes_func,
+    usbredirparser_alloc_lock alloc_lock_func,
+    usbredirparser_lock lock_func,
+    usbredirparser_unlock unlock_func,
+    usbredirparser_free_lock free_lock_func,
+    void *func_priv, const char *version, int verbose, int flags)
+{
     struct usbredirhost *host;
     struct usb_redir_device_connect_header device_connect;
     struct libusb_device_descriptor desc;
@@ -470,6 +486,7 @@ struct usbredirhost *usbredirhost_open(
     host->log_func = log_func;
     host->read_func = read_guest_data_func;
     host->write_func = write_guest_data_func;
+    host->flush_writes_func = flush_writes_func;
     host->func_priv = func_priv;
     host->verbose = verbose;
     host->parser = usbredirparser_create();
@@ -501,6 +518,15 @@ struct usbredirhost *usbredirhost_open(
     host->parser->bulk_packet_func = usbredirhost_bulk_packet;
     host->parser->iso_packet_func = usbredirhost_iso_packet;
     host->parser->interrupt_packet_func = usbredirhost_interrupt_packet;
+    host->parser->alloc_lock_func = alloc_lock_func;
+    host->parser->lock_func = lock_func;
+    host->parser->unlock_func = unlock_func;
+    host->parser->free_lock_func = free_lock_func;
+
+    if (host->parser->alloc_lock_func) {
+        host->lock = host->parser->alloc_lock_func();
+        host->disconnect_lock = host->parser->alloc_lock_func();
+    }
 
     if (flags & usbredirhost_fl_write_cb_owns_buffer) {
         parser_flags |= usbredirparser_fl_write_cb_owns_buffer;
@@ -597,52 +623,19 @@ void usbredirhost_close(struct usbredirhost *host)
     if (host->config) {
         libusb_free_config_descriptor(host->config);
     }
-    if (host->parser) {
-        usbredirparser_destroy(host->parser);
-    }
     if (host->handle) {
         libusb_close(host->handle);
     }
     if (host->lock) {
-        host->free_lock_func(host->lock);
+        host->parser->free_lock_func(host->lock);
     }
     if (host->disconnect_lock) {
-        host->free_lock_func(host->disconnect_lock);
+        host->parser->free_lock_func(host->disconnect_lock);
+    }
+    if (host->parser) {
+        usbredirparser_destroy(host->parser);
     }
     free(host);
-}
-
-int usbredirhost_set_locking_funcs(struct usbredirhost *host,
-    usbredirparser_alloc_lock alloc_lock_func,
-    usbredirparser_lock lock_func,
-    usbredirparser_unlock unlock_func,
-    usbredirparser_free_lock free_lock_func)
-{
-    host->lock_func = lock_func;
-    host->unlock_func = unlock_func;
-    host->free_lock_func = free_lock_func;
-
-    host->lock = alloc_lock_func();
-    if (!host->lock) {
-        ERROR("Out of memory allocating lock");
-        return -1;
-    }
-    host->disconnect_lock = alloc_lock_func();
-    if (!host->disconnect_lock) {
-        ERROR("Out of memory allocating lock");
-        return -1;
-    }
-
-    return usbredirparser_set_locking_funcs(host->parser,
-                                            alloc_lock_func,
-                                            lock_func, unlock_func,
-                                            free_lock_func);
-}
-
-void usbredirhost_set_flush_writes_callback(struct usbredirhost *host,
-    usbredirhost_flush_writes flush_writes_func)
-{
-    host->flush_writes_func = flush_writes_func;
 }
 
 int usbredirhost_read_guest_data(struct usbredirhost *host)

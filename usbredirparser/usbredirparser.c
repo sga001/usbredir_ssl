@@ -30,13 +30,13 @@
 #define LOCK(parser) \
     do { \
         if ((parser)->lock) \
-            (parser)->lock_func((parser)->lock); \
+            (parser)->callb.lock_func((parser)->lock); \
     } while (0)
 
 #define UNLOCK(parser) \
     do { \
         if ((parser)->lock) \
-            (parser)->unlock_func((parser)->lock); \
+            (parser)->callb.unlock_func((parser)->lock); \
     } while (0)
 
 struct usbredirparser_buf {
@@ -54,9 +54,6 @@ struct usbredirparser_priv {
     uint32_t our_caps[USB_REDIR_CAPS_SIZE];
     uint32_t peer_caps[USB_REDIR_CAPS_SIZE];
 
-    usbredirparser_lock lock_func;
-    usbredirparser_unlock unlock_func;
-    usbredirparser_free_lock free_lock_func;
     void *lock;
 
     struct usb_redir_header header;
@@ -107,6 +104,9 @@ void usbredirparser_init(struct usbredirparser *parser_pub,
     struct usb_redir_hello_header hello;
 
     parser->flags = flags;
+    if (parser->callb.alloc_lock_func) {
+        parser->lock = parser->callb.alloc_lock_func();
+    }
 
     snprintf(hello.version, sizeof(hello.version), "%s", version);
     if (caps_len > USB_REDIR_CAPS_SIZE) {
@@ -133,30 +133,9 @@ void usbredirparser_destroy(struct usbredirparser *parser_pub)
     }
 
     if (parser->lock)
-        parser->free_lock_func(parser->lock);
+        parser->callb.free_lock_func(parser->lock);
 
     free(parser);
-}
-
-int usbredirparser_set_locking_funcs(struct usbredirparser *parser_pub,
-    usbredirparser_alloc_lock alloc_lock_func,
-    usbredirparser_lock lock_func,
-    usbredirparser_unlock unlock_func,
-    usbredirparser_free_lock free_lock_func)
-{
-    struct usbredirparser_priv *parser =
-        (struct usbredirparser_priv *)parser_pub;
-
-    parser->lock_func = lock_func;
-    parser->unlock_func = unlock_func;
-    parser->free_lock_func = free_lock_func;
-
-    parser->lock = alloc_lock_func();
-    if (!parser->lock) {
-        ERROR("Out of memory allocating lock");
-        return -1;
-    }
-    return 0;
 }
 
 int usbredirparser_peer_has_cap(struct usbredirparser *parser_pub, int cap)

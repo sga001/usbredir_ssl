@@ -68,6 +68,20 @@ struct usbredirhost *usbredirhost_open(
     usbredirparser_write write_guest_data_func,
     void *func_priv, const char *version, int verbose, int flags);
 
+/* See README.multi-thread */
+struct usbredirhost *usbredirhost_open_full(
+    libusb_context *usb_ctx,
+    libusb_device_handle *usb_dev_handle,
+    usbredirparser_log log_func,
+    usbredirparser_read  read_guest_data_func,
+    usbredirparser_write write_guest_data_func,
+    usbredirhost_flush_writes flush_writes_func,
+    usbredirparser_alloc_lock alloc_lock_func,
+    usbredirparser_lock lock_func,
+    usbredirparser_unlock unlock_func,
+    usbredirparser_free_lock free_lock_func,
+    void *func_priv, const char *version, int verbose, int flags);
+
 /* Close the usbredirhost, returning control of the device back to any
    host kernel drivers for it, freeing any allocated memory, etc.
 
@@ -76,16 +90,6 @@ struct usbredirhost *usbredirhost_open(
    are using the same libusb context for other purposes your transfer complete
    callbacks may get called! */
 void usbredirhost_close(struct usbredirhost *host);
-
-/* See README.multi-thread */
-int usbredirhost_set_locking_funcs(struct usbredirhost *host,
-    usbredirparser_alloc_lock alloc_lock_func,
-    usbredirparser_lock lock_func,
-    usbredirparser_unlock unlock_func,
-    usbredirparser_free_lock free_lock_func);
-
-void usbredirhost_set_flush_writes_callback(struct usbredirhost *host,
-    usbredirhost_flush_writes flush_writes_func);
 
 /* Call this whenever there is data ready for the usbredirhost to read from
    the usb-guest

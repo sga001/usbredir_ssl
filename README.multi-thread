@@ -24,24 +24,16 @@ The above translates to some functions only allowing one caller at a time,
 while others allow multiple callers, see below for a detailed overview.
 
 In order to enable the multi-thread support in libusbredir* the app
-must provide a number of locking callback functions, by calling the
-libusbredir*_set_locking_funcs function, ie:
+must provide a number of locking callback functions, for libusbredirparser
+this is done by filling in the usbredirparser_*_lock funcs in the
+usbredirparser struct before calling usbredirparser_init(). For
+libusbredirhost the locking functions (and a write-flush callback) can
+be specified by using usbredirhost_open_full() instead of
+usbredirhost_open().
 
-int usbredirparser_set_locking_funcs(struct usbredirparser *parser,
-    usbredirparser_alloc_lock alloc_lock_func,
-    usbredirparser_lock lock_func,
-    usbredirparser_unlock unlock_func,
-    usbredirparser_free_lock free_lock_func);
+Note that the alloc_lock_func may not fail! If it returns NULL no locking
+will be done and usage from multiple threads will be unsafe.
 
-The app should call usbredirparser_set_locking_funcs immediately after
-usbredirparser_init, or call usbredirhost_set_locking_funcs immediately after
-usbredirhost_open. The app should not use libusbredir* from multiple threads
-in any way until this is done.
-
-Note this function will immediately call the alloc_lock_func a number of times,
-and it will fail if this functions returns NULL at any time. It returns 0 on
-success and -1 on error. If your alloc_lock_func cannot fail there is no
-need to check the return value of this function.
 
 Overview of per function multi-thread safeness
 ----------------------------------------------
@@ -51,7 +43,6 @@ usbredirparser:
  usbredirparser_create
  usbredirparser_init
  usbredirparser_destroy
- usbredirparser_set_locking_funcs
  usbredirparser_do_read
 
 -Multiple callers allowed:
@@ -66,8 +57,8 @@ usbredirparser:
 usbredirhost:
 -Only one caller allowed at a time:
  usbredirhost_open
+ usbredirhost_open_full
  usbredirhost_close
- usbredirhost_set_locking_funcs
  usbredirhost_read_guest_data
 
 -Multiple callers allowed:
