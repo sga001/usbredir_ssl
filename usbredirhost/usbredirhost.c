@@ -85,6 +85,7 @@ struct usbredirhost_ep {
     uint8_t iso_pkts_per_transfer;
     uint8_t iso_transfer_count;
     int iso_out_idx;
+    int iso_drop_packets;
     int max_packetsize;
     struct usbredirtransfer *iso_transfer[MAX_ISO_TRANSFER_COUNT];
     struct usbredirtransfer *interrupt_in_transfer;
@@ -971,6 +972,21 @@ resubmit:
             usbredirhost_send_iso_status(host, transfer->id, ep,
                                          usb_redir_stall);
         }
+    } else {
+        for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
+            transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
+            if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX)
+                break;
+        }
+        if (i == host->endpoint[EP2I(ep)].iso_transfer_count) {
+            WARNING("underflow of iso out queue on ep: %02X", ep);
+            /* Re-fill buffers before submitting urbs again */
+            for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++)
+                host->endpoint[EP2I(ep)].iso_transfer[i]->iso_packet_idx = 0;
+            host->endpoint[EP2I(ep)].iso_out_idx = 0;
+            host->endpoint[EP2I(ep)].iso_started = 0;
+            host->endpoint[EP2I(ep)].iso_drop_packets = 0;
+        }
     }
 unlock:
     UNLOCK(host);
@@ -1025,6 +1041,7 @@ static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
             host->endpoint[EP2I(ep)].max_packetsize);
     }
     host->endpoint[EP2I(ep)].iso_out_idx = 0;
+    host->endpoint[EP2I(ep)].iso_drop_packets = 0;
     host->endpoint[EP2I(ep)].iso_pkts_per_transfer = pkts_per_transfer;
     host->endpoint[EP2I(ep)].iso_transfer_count = transfer_count;
 
@@ -1065,6 +1082,7 @@ static int usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
     }
     host->endpoint[EP2I(ep)].iso_out_idx = 0;
     host->endpoint[EP2I(ep)].iso_started = 0;
+    host->endpoint[EP2I(ep)].iso_drop_packets = 0;
     if (do_free) {
         host->endpoint[EP2I(ep)].iso_pkts_per_transfer = 0;
         host->endpoint[EP2I(ep)].iso_transfer_count = 0;
@@ -1840,11 +1858,21 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
         goto leave;
     }
 
+    if (host->endpoint[EP2I(ep)].iso_drop_packets) {
+        host->endpoint[EP2I(ep)].iso_drop_packets--;
+        goto leave;
+    }
+
     i = host->endpoint[EP2I(ep)].iso_out_idx;
     transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
     j = transfer->iso_packet_idx;
     if (j == ISO_SUBMITTED_IDX) {
         WARNING("overflow of iso out queue on ep: %02X, dropping packet", ep);
+        /* Since we're interupting the stream anyways, drop enough packets to
+           get back to our target buffer size */
+        host->endpoint[EP2I(ep)].iso_drop_packets =
+                     (host->endpoint[EP2I(ep)].iso_pkts_per_transfer *
+                      host->endpoint[EP2I(ep)].iso_transfer_count) / 2;
         goto leave;
     }
 
