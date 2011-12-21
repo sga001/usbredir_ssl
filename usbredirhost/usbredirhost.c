@@ -979,7 +979,7 @@ resubmit:
                 break;
         }
         if (i == host->endpoint[EP2I(ep)].iso_transfer_count) {
-            WARNING("underflow of iso out queue on ep: %02X", ep);
+            DEBUG("underflow of iso out queue on ep: %02X", ep);
             /* Re-fill buffers before submitting urbs again */
             for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++)
                 host->endpoint[EP2I(ep)].iso_transfer[i]->iso_packet_idx = 0;
@@ -1867,7 +1867,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
     j = transfer->iso_packet_idx;
     if (j == ISO_SUBMITTED_IDX) {
-        WARNING("overflow of iso out queue on ep: %02X, dropping packet", ep);
+        DEBUG("overflow of iso out queue on ep: %02X, dropping packet", ep);
         /* Since we're interupting the stream anyways, drop enough packets to
            get back to our target buffer size */
         host->endpoint[EP2I(ep)].iso_drop_packets =
