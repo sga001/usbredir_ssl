@@ -1644,6 +1644,20 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
         return;
     }
 
+    /* If it is a clear stall, we need to do an actual clear stall, rather then
+       just forward the control packet, so that the usbhost usbstack knows
+       the stall is cleared */
+    if (control_packet->requesttype == LIBUSB_RECIPIENT_ENDPOINT &&
+            control_packet->request == LIBUSB_REQUEST_CLEAR_FEATURE &&
+            control_packet->value == 0x00 && data_len == 0) {
+        r = libusb_clear_halt(host->handle, control_packet->index);
+        r = libusb_status_or_error_to_redir_status(host, r);
+        DEBUG("clear halt ep %02X status %d", control_packet->index, r);
+        usbredirhost_send_control_status(host, id, control_packet, r);
+        FLUSH(host);
+        return;
+    }
+
     buffer = malloc(LIBUSB_CONTROL_SETUP_SIZE + control_packet->length);
     if (!buffer) {
         ERROR("out of memory allocating transfer buffer, dropping packet");
