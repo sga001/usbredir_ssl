@@ -59,6 +59,8 @@ typedef void (*usbredirparser_free_lock)(void *lock);
    guarenteed to be that of the callback.
 
    Control packets: */
+typedef void (*usbredirparser_hello)(void *priv,
+    struct usb_redir_hello_header *hello);
 typedef void (*usbredirparser_device_connect)(void *priv,
     struct usb_redir_device_connect_header *device_connect);
 typedef void (*usbredirparser_device_disconnect)(void *priv);
@@ -161,6 +163,8 @@ struct usbredirparser {
     usbredirparser_lock lock_func;
     usbredirparser_unlock unlock_func;
     usbredirparser_free_lock free_lock_func;
+    /* usbredir 0.3.2 new control packet complete callbacks */
+    usbredirparser_hello hello_func;
 };
 
 /* Allocate a usbredirparser, after this the app should set the callback app
@@ -189,7 +193,8 @@ void usbredirparser_destroy(struct usbredirparser *parser);
 /* See if our side has a certain cap (checks the caps passed into _init) */
 int usbredirparser_have_cap(struct usbredirparser *parser, int cap);
 
-/* Check if our peer has a certain capability */
+/* Check if our peer has a certain capability. Note this function
+   should not be used before the hello_func callback has been called. */
 int usbredirparser_peer_has_cap(struct usbredirparser *parser, int cap);
 
 /* Call this whenever there is data ready from the otherside to parse
@@ -225,6 +230,9 @@ uint32_t *usbredirparser_get_peer_caps(int *caps_len_ret);
    2) if their is not enough memory for buffers the packet will be dropped
       (and an error message will be logged */
 /* Control packets: */
+
+/* Note this function should not be used before the hello_func callback has
+   been called (as it checks the usb_redir_cap_connect_device_version cap). */
 void usbredirparser_send_device_connect(struct usbredirparser *parser,
     struct usb_redir_device_connect_header *device_connect);
 void usbredirparser_send_device_disconnect(struct usbredirparser *parser);

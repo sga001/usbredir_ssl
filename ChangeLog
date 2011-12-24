@@ -7,6 +7,10 @@ usbredir-0.3.2 unreleased
  -extend the device_connect packet header with a device_version field
   This new field is only send / received if both sides have the (new)
   usb_redir_cap_connect_device_version capability.
+ -Add a hello_func callback which gets called after receiving the hello
+  packet from the other side. This can be used to determine when the caps
+  from the other side have been received and it thus is safe to call
+  usbredirparser_send_device_connect.
 
 -usbredirhost:
  -limited multi-thread safeness, see README.multi-thread

@@ -190,6 +190,10 @@ static void usbredirparser_handle_hello(struct usbredirparser_priv *parser,
         parser->peer_caps[i] = peer_caps[i];
     }
     free(data);
+
+    /* Added in 0.3.2, so no guarantee it is there */
+    if (parser->callb.hello_func)
+        parser->callb.hello_func(parser->callb.priv, hello);
 }
 
 static int usbredirparser_get_type_header_len(
