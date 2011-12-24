@@ -139,6 +139,11 @@ void usbredirparser_destroy(struct usbredirparser *parser_pub)
     free(parser);
 }
 
+void usbredirparser_caps_set_cap(uint32_t *caps, int cap)
+{
+    caps[cap / 32] |= 1 << (cap % 32);
+}
+
 int usbredirparser_peer_has_cap(struct usbredirparser *parser_pub, int cap)
 {
     struct usbredirparser_priv *parser =

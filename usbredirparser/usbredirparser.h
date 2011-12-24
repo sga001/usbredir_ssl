@@ -168,6 +168,11 @@ struct usbredirparser {
    usbredirparser_init */
 struct usbredirparser *usbredirparser_create(void);
 
+/* Set capability cap in the USB_REDIR_CAPS_SIZE sized caps array,
+   this is a helper function to set capabilities in the caps array
+   passed to usbredirparser_init(). */
+void usbredirparser_caps_set_cap(uint32_t *caps, int cap);
+
 /* Init the parser, this will queue an initial usb_redir_hello packet,
    sending the version and caps to the peer, as well as configure the parsing
    according to the passed in flags. */
