@@ -1,10 +1,14 @@
 usbredir-0.3.2 unreleased
 -------------------------
+-Switched to automake/autoconf/libtool based make system (Christophe Fergeau)
+
 -usbredirparser:
  -limited multi-thread safeness, see README.multi-thread
 
 -usbredirhost:
  -limited multi-thread safeness, see README.multi-thread
+ -properly handle clear stalls send from the usbguest
+ -try to keep our iso buffer size near the target size
 
 
 usbredir-0.3.1 18 August 2011
