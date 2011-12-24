@@ -4,6 +4,9 @@ usbredir-0.3.2 unreleased
 
 -usbredirparser:
  -limited multi-thread safeness, see README.multi-thread
+ -extend the device_connect packet header with a device_version field
+  This new field is only send / received if both sides have the (new)
+  usb_redir_cap_connect_device_version capability.
 
 -usbredirhost:
  -limited multi-thread safeness, see README.multi-thread

@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include "usbredirproto-compat.h"
 #include "usbredirparser.h"
 
 /* Locking convenience macros */
@@ -153,6 +154,17 @@ int usbredirparser_peer_has_cap(struct usbredirparser *parser_pub, int cap)
     }
 }
 
+int usbredirparser_have_cap(struct usbredirparser *parser_pub, int cap)
+{
+    struct usbredirparser_priv *parser =
+        (struct usbredirparser_priv *)parser_pub;
+    if ((parser->our_caps[cap / 32]) & (1 << (cap % 32))) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
 static void usbredirparser_handle_hello(struct usbredirparser_priv *parser,
     struct usb_redir_hello_header *hello, uint8_t *data, int data_len)
 {
@@ -176,8 +188,10 @@ static void usbredirparser_handle_hello(struct usbredirparser_priv *parser,
 }
 
 static int usbredirparser_get_type_header_len(
-    struct usbredirparser_priv *parser, int32_t type, int send)
+    struct usbredirparser *parser_pub, int32_t type, int send)
 {
+    struct usbredirparser_priv *parser =
+        (struct usbredirparser_priv *)parser_pub;
     int command_for_host = 0;
     
     if (parser->flags & usbredirparser_fl_usb_host) {
@@ -192,7 +206,14 @@ static int usbredirparser_get_type_header_len(
         return sizeof(struct usb_redir_hello_header);
     case usb_redir_device_connect:
         if (!command_for_host) {
-            return sizeof(struct usb_redir_device_connect_header);
+            if (usbredirparser_have_cap(parser_pub,
+                                    usb_redir_cap_connect_device_version) &&
+                usbredirparser_peer_has_cap(parser_pub,
+                                    usb_redir_cap_connect_device_version)) {
+                return sizeof(struct usb_redir_device_connect_header);
+            } else {
+                return sizeof(struct usb_redir_device_connect_header_no_device_version);
+            }
         } else {
             return -1;
         }
@@ -588,7 +609,7 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
             parser->header_read += r;
             if (parser->header_read == sizeof(parser->header)) {
                 type_header_len =
-                    usbredirparser_get_type_header_len(parser,
+                    usbredirparser_get_type_header_len(parser_pub,
                                                        parser->header.type, 0);
                 if (type_header_len < 0) {
                     ERROR("invalid usb-redir packet type: %u",
@@ -714,7 +735,7 @@ static void usbredirparser_queue(struct usbredirparser *parser_pub,
     struct usbredirparser_buf *wbuf, *new_wbuf;
     int type_header_len;
 
-    type_header_len = usbredirparser_get_type_header_len(parser, type, 1);
+    type_header_len = usbredirparser_get_type_header_len(parser_pub, type, 1);
     if (type_header_len < 0) { /* This should never happen */
         ERROR("packet type unknown with internal call, please report!!");
         return;

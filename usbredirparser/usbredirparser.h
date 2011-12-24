@@ -181,6 +181,10 @@ void usbredirparser_init(struct usbredirparser *parser,
 
 void usbredirparser_destroy(struct usbredirparser *parser);
 
+/* See if our side has a certain cap (checks the caps passed into _init) */
+int usbredirparser_have_cap(struct usbredirparser *parser, int cap);
+
+/* Check if our peer has a certain capability */
 int usbredirparser_peer_has_cap(struct usbredirparser *parser, int cap);
 
 /* Call this whenever there is data ready from the otherside to parse
