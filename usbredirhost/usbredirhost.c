@@ -106,6 +106,7 @@ struct usbredirhost {
     libusb_context *ctx;
     libusb_device *dev;
     libusb_device_handle *handle;
+    struct libusb_device_descriptor desc;
     struct libusb_config_descriptor *config;
     int active_config;
     int claimed;
@@ -143,6 +144,7 @@ static void va_log(struct usbredirhost *host, int level,
 #define DEBUG(...)   va_log(host, usbredirparser_debug, \
                             "usbredirhost: " __VA_ARGS__)
 
+static void usbredirhost_hello(void *priv, struct usb_redir_hello_header *h);
 static void usbredirhost_reset(void *priv);
 static void usbredirhost_set_configuration(void *priv, uint32_t id,
     struct usb_redir_set_configuration_header *set_configuration);
@@ -467,11 +469,8 @@ struct usbredirhost *usbredirhost_open_full(
     void *func_priv, const char *version, int verbose, int flags)
 {
     struct usbredirhost *host;
-    struct usb_redir_device_connect_header device_connect;
-    struct libusb_device_descriptor desc;
-    enum libusb_speed speed;
-    int r;
-    int parser_flags = usbredirparser_fl_usb_host;
+    int r, parser_flags = usbredirparser_fl_usb_host;
+    uint32_t caps[USB_REDIR_CAPS_SIZE] = { 0, };
 
     host = calloc(1, sizeof(*host));
     if (!host) {
@@ -501,6 +500,7 @@ struct usbredirhost *usbredirhost_open_full(
     host->parser->log_func = usbredirhost_log;
     host->parser->read_func = usbredirhost_read;
     host->parser->write_func = usbredirhost_write;
+    host->parser->hello_func = usbredirhost_hello;
     host->parser->reset_func = usbredirhost_reset;
     host->parser->set_configuration_func = usbredirhost_set_configuration;
     host->parser->get_configuration_func = usbredirhost_get_configuration;
@@ -532,7 +532,11 @@ struct usbredirhost *usbredirhost_open_full(
     if (flags & usbredirhost_fl_write_cb_owns_buffer) {
         parser_flags |= usbredirparser_fl_write_cb_owns_buffer;
     }
-    usbredirparser_init(host->parser, version, NULL, 0, parser_flags);
+
+    usbredirparser_caps_set_cap(caps, usb_redir_cap_connect_device_version);
+
+    usbredirparser_init(host->parser, version, caps, USB_REDIR_CAPS_SIZE,
+                        parser_flags);
 
     libusb_set_debug(host->ctx, host->verbose);
 
@@ -543,7 +547,7 @@ struct usbredirhost *usbredirhost_open_full(
         return NULL;
     }
 
-    r = libusb_get_device_descriptor(host->dev, &desc);
+    r = libusb_get_device_descriptor(host->dev, &host->desc);
     if (r < 0) {
         ERROR("could not get device descriptor: %d", r);
         usbredirhost_close(host);
@@ -555,26 +559,6 @@ struct usbredirhost *usbredirhost_open_full(
         return NULL;
     }
 
-    speed = libusb_get_device_speed(host->dev);
-    switch (speed) {
-    case LIBUSB_SPEED_LOW:
-        device_connect.speed = usb_redir_speed_low; break;
-    case LIBUSB_SPEED_FULL:
-        device_connect.speed = usb_redir_speed_full; break;
-    case LIBUSB_SPEED_HIGH:
-        device_connect.speed = usb_redir_speed_high; break;
-    case LIBUSB_SPEED_SUPER:
-        device_connect.speed = usb_redir_speed_super; break;
-    default:
-        device_connect.speed = usb_redir_speed_unknown;
-    }
-    device_connect.device_class = desc.bDeviceClass;
-    device_connect.device_subclass = desc.bDeviceSubClass;
-    device_connect.device_protocol = desc.bDeviceProtocol;
-    device_connect.vendor_id = desc.idVendor;
-    device_connect.product_id = desc.idProduct;
-
-    usbredirparser_send_device_connect(host->parser, &device_connect);
     FLUSH(host);
 
     return host;
@@ -1275,6 +1259,36 @@ unlock:
 }
 
 /**************************************************************************/
+
+static void usbredirhost_hello(void *priv, struct usb_redir_hello_header *h)
+{
+    struct usbredirhost *host = priv;
+    struct usb_redir_device_connect_header device_connect;
+    enum libusb_speed speed;
+
+    speed = libusb_get_device_speed(host->dev);
+    switch (speed) {
+    case LIBUSB_SPEED_LOW:
+        device_connect.speed = usb_redir_speed_low; break;
+    case LIBUSB_SPEED_FULL:
+        device_connect.speed = usb_redir_speed_full; break;
+    case LIBUSB_SPEED_HIGH:
+        device_connect.speed = usb_redir_speed_high; break;
+    case LIBUSB_SPEED_SUPER:
+        device_connect.speed = usb_redir_speed_super; break;
+    default:
+        device_connect.speed = usb_redir_speed_unknown;
+    }
+    device_connect.device_class = host->desc.bDeviceClass;
+    device_connect.device_subclass = host->desc.bDeviceSubClass;
+    device_connect.device_protocol = host->desc.bDeviceProtocol;
+    device_connect.vendor_id = host->desc.idVendor;
+    device_connect.product_id = host->desc.idProduct;
+    device_connect.device_version_bcd = host->desc.bcdDevice;
+
+    usbredirparser_send_device_connect(host->parser, &device_connect);
+    FLUSH(host);
+}
 
 static void usbredirhost_reset(void *priv)
 {

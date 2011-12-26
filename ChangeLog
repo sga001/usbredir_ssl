@@ -16,6 +16,7 @@ usbredir-0.3.2 unreleased
  -limited multi-thread safeness, see README.multi-thread
  -properly handle clear stalls send from the usbguest
  -try to keep our iso buffer size near the target size
+ -implement usb_redir_cap_connect_device_version
 
 
 usbredir-0.3.1 18 August 2011
