@@ -23,6 +23,7 @@
 
 #include <libusb.h>
 #include "usbredirparser.h"
+#include "usbredirfilter.h"
 
 struct usbredirhost;
 
@@ -113,5 +114,15 @@ int usbredirhost_write_guest_data(struct usbredirhost *host);
    usbredirhost_open, this function must be called to free the data buffer
    passed to write_guest_data_func when done with this buffer. */
 void usbredirhost_free_write_buffer(struct usbredirhost *host, uint8_t *data);
+
+/* Get device and config descriptors from the USB device dev, and call
+   usbredirfilter_check with the passed in filter rules and the needed info
+   from the descriptors, flags gets passed to usbredirfilter_check unmodified.
+   See the documentation of usbredirfilter_check for more details.
+
+   Return value: -EIO or -ENOMEM when getting the descriptors fails, otherwise
+       it returns the return value of the usbredirfilter_check call. */
+int usbredirhost_check_device_filter(struct usbredirfilter_rule *rules,
+    int rules_count, libusb_device *dev, int flags);
 
 #endif

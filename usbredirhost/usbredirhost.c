@@ -2021,3 +2021,45 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
         usbredirhost_interrupt_packet_complete(transfer->transfer);
     }
 }
+
+/**************************************************************************/
+
+int usbredirhost_check_device_filter(struct usbredirfilter_rule *rules,
+    int rules_count, libusb_device *dev, int flags)
+{
+    int i, r, num_interfaces;
+    struct libusb_device_descriptor dev_desc;
+    struct libusb_config_descriptor *config;
+    int interface_class[MAX_INTERFACES];
+    int interface_subclass[MAX_INTERFACES];
+    int interface_protocol[MAX_INTERFACES];
+
+    r = libusb_get_device_descriptor(dev, &dev_desc);
+    if (r < 0) {
+        if (r == LIBUSB_ERROR_NO_MEM)
+            return -ENOMEM;
+        return -EIO;
+    }
+
+    r = libusb_get_active_config_descriptor(dev, &config);
+    if (r < 0) {
+        if (r == LIBUSB_ERROR_NO_MEM)
+            return -ENOMEM;
+        return -EIO;
+    }
+    num_interfaces = config->bNumInterfaces;
+    for (i = 0; i < num_interfaces; i++) {
+        const struct libusb_interface_descriptor *intf_desc =
+            config->interface[i].altsetting;
+        interface_class[i] = intf_desc->bInterfaceClass;
+        interface_subclass[i] = intf_desc->bInterfaceSubClass;
+        interface_protocol[i] = intf_desc->bInterfaceProtocol;
+    }
+    libusb_free_config_descriptor(config);
+
+    return usbredirfilter_check(rules, rules_count, dev_desc.bDeviceClass,
+                dev_desc.bDeviceSubClass, dev_desc.bDeviceProtocol,
+                interface_class, interface_subclass, interface_protocol,
+                num_interfaces, dev_desc.idVendor, dev_desc.idProduct,
+                dev_desc.bcdDevice, flags);
+}

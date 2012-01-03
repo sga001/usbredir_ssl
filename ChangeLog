@@ -1,5 +1,15 @@
-usbredir-0.3.2 unreleased
+usbredir-0.3.3 unreleased
 -------------------------
+-usbredirparser:
+ -add usbredirfilter code, to help apps exclude certain devices from
+  redirection. See usbredirfilter.h for details.
+
+-usbredirhost:
+ -add a usbredirhost_check_device_filter helper function. See usbredirhost.h
+
+
+usbredir-0.3.2 3 January 2012
+-----------------------------
 -Switched to automake/autoconf/libtool based make system (Christophe Fergeau)
 
 -usbredirparser:
