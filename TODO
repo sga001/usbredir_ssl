@@ -1,8 +1,6 @@
 * do endian conversion in usbredirparser where necessary
 * check length against max packet size
 * check caps for relevant callbacks in parser
-* be smarter with iso buffering / make configurable (in qemu)
 * cancel pending packets / active streams before reset?
 * add a queue_buf call to parser, use it in host to avoid memcpy of
   "in" bulk transfers
-* add a check for the makefile for libusb being atleast version 1.0.9
