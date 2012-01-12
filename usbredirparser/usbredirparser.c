@@ -391,6 +391,15 @@ static int usbredirparser_verify_type_header(
     }
 
     switch (type) {
+    case usb_redir_interface_info: {
+        struct usb_redir_interface_info_header *intf_info = header;
+
+        if (intf_info->interface_count > 32) {
+            ERROR("interface_count > 32");
+            return 0;
+        }
+        break;
+    }
     case usb_redir_control_packet:
         length = ((struct usb_redir_control_packet_header *)header)->length;
         ep = ((struct usb_redir_control_packet_header *)header)->endpoint;
