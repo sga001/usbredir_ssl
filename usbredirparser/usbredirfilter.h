@@ -22,6 +22,7 @@
 #define __USBREDIRFILTER_H
 
 #include <stdio.h>
+#include <stdint.h>
 
 struct usbredirfilter_rule {
     int device_class;       /* 0-255, -1 to match any class */
@@ -105,9 +106,10 @@ enum {
     usbredirfilter_fl_dont_skip_non_boot_hid = 0x02,
 };
 int usbredirfilter_check(struct usbredirfilter_rule *rules, int rules_count,
-    int device_class, int device_subclass, int device_protocol,
-    int *interface_class, int *interface_subclass, int *interface_protocol,
-    int interface_count, int vendor_id, int product_id, int device_version_bcd,
+    uint8_t device_class, uint8_t device_subclass, uint8_t device_protocol,
+    uint8_t *interface_class, uint8_t *interface_subclass,
+    uint8_t *interface_protocol, int interface_count,
+    uint16_t vendor_id, uint16_t product_id, uint16_t device_version_bcd,
     int flags);
 
 /* Sanity check the passed in rules

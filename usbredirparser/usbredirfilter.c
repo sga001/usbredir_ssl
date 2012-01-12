@@ -137,8 +137,8 @@ char *usbredirfilter_rules_to_string(struct usbredirfilter_rule *rules,
 }
 
 static int usbredirfilter_check1(struct usbredirfilter_rule *rules,
-    int rules_count, int device_class, int vendor_id, int product_id,
-    int device_version_bcd, int default_allow)
+    int rules_count, uint8_t device_class, uint16_t vendor_id,
+    uint16_t product_id, uint16_t device_version_bcd, int default_allow)
 {
     int i;
 
@@ -160,9 +160,10 @@ static int usbredirfilter_check1(struct usbredirfilter_rule *rules,
 }
 
 int usbredirfilter_check(struct usbredirfilter_rule *rules, int rules_count,
-    int device_class, int device_subclass, int device_protocol,
-    int *interface_class, int *interface_subclass, int *interface_protocol,
-    int interface_count, int vendor_id, int product_id, int device_version_bcd,
+    uint8_t device_class, uint8_t device_subclass, uint8_t device_protocol,
+    uint8_t *interface_class, uint8_t *interface_subclass,
+    uint8_t *interface_protocol, int interface_count,
+    uint16_t vendor_id, uint16_t product_id, uint16_t device_version_bcd,
     int flags)
 {
     int i, rc;

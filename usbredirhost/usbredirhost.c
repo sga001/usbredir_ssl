@@ -2030,9 +2030,9 @@ int usbredirhost_check_device_filter(struct usbredirfilter_rule *rules,
     int i, r, num_interfaces;
     struct libusb_device_descriptor dev_desc;
     struct libusb_config_descriptor *config;
-    int interface_class[MAX_INTERFACES];
-    int interface_subclass[MAX_INTERFACES];
-    int interface_protocol[MAX_INTERFACES];
+    uint8_t interface_class[MAX_INTERFACES];
+    uint8_t interface_subclass[MAX_INTERFACES];
+    uint8_t interface_protocol[MAX_INTERFACES];
 
     r = libusb_get_device_descriptor(dev, &dev_desc);
     if (r < 0) {
