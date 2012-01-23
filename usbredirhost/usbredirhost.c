@@ -330,7 +330,7 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
 }
 
 /* Called from open/close and parser read callbacks */
-static int usbredirhost_claim(struct usbredirhost *host)
+static int usbredirhost_claim(struct usbredirhost *host, int detach_drivers)
 {
     int i, n, r, ret = usb_redir_success;
 
@@ -358,15 +358,17 @@ static int usbredirhost_claim(struct usbredirhost *host)
     for (i = 0; i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
 
-        r = libusb_detach_kernel_driver(host->handle, n);
-        if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
-            ERROR("could not detach driver from interface %d (configuration %d): %d",
-                  n, host->active_config, r);
-            ret = libusb_status_or_error_to_redir_status(host, r);
-            goto error;
+        if (detach_drivers) {
+            r = libusb_detach_kernel_driver(host->handle, n);
+            if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
+                ERROR("could not detach driver from interface %d (configuration %d): %d",
+                      n, host->active_config, r);
+                ret = libusb_status_or_error_to_redir_status(host, r);
+                goto error;
+            }
+            /* Note indexed by i not n !! (too ensure we don't go out of bound) */
+            host->driver_detached[i] = (r != LIBUSB_ERROR_NOT_FOUND);
         }
-        /* Note indexed by i not n !! (too ensure we don't go out of bound) */
-        host->driver_detached[i] = (r != LIBUSB_ERROR_NOT_FOUND);
 
         r = libusb_claim_interface(host->handle, n);
         if (r < 0) {
@@ -388,7 +390,7 @@ error:
         /* This is a nop on non claimed interfaces */
         libusb_release_interface(host->handle, n);
 
-        if (host->driver_detached[i]) {
+        if (detach_drivers && host->driver_detached[i]) {
             r = libusb_attach_kernel_driver(host->handle, n);
             if (r == 0) {
                 host->driver_detached[i] = 0;
@@ -399,7 +401,7 @@ error:
 }
 
 /* Called from open/close and parser read callbacks */
-static int usbredirhost_release(struct usbredirhost *host)
+static int usbredirhost_release(struct usbredirhost *host, int attach_drivers)
 {
     int i, n, r, ret = usb_redir_success;
 
@@ -417,6 +419,10 @@ static int usbredirhost_release(struct usbredirhost *host)
                   n, host->active_config, r);
             ret = usb_redir_ioerror;
         }
+    }
+
+    if (!attach_drivers) {
+        goto exit;
     }
 
     for (i = 0; i < host->config->bNumInterfaces; i++) {
@@ -437,6 +443,7 @@ static int usbredirhost_release(struct usbredirhost *host)
         }
     }
 
+exit:
     host->claimed = 0;
     return ret;
 }
@@ -554,7 +561,7 @@ struct usbredirhost *usbredirhost_open_full(
         return NULL;
     }
 
-    if (usbredirhost_claim(host) != usb_redir_success) {
+    if (usbredirhost_claim(host, 1) != usb_redir_success) {
         usbredirhost_close(host);
         return NULL;
     }
@@ -603,7 +610,7 @@ void usbredirhost_close(struct usbredirhost *host)
     }
 
     if (host->claimed && !host->disconnected) {
-        usbredirhost_release(host);
+        usbredirhost_release(host, 1);
     }
     if (host->config) {
         libusb_free_config_descriptor(host->config);
@@ -1342,7 +1349,7 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
     }
     usbredirhost_cancel_pending_urbs(host);
 
-    status.status = usbredirhost_release(host);
+    status.status = usbredirhost_release(host, 0);
     if (status.status != usb_redir_success) {
         goto exit;
     }
@@ -1356,7 +1363,7 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
     }
 
     host->active_config = set_config->configuration;
-    status.status = usbredirhost_claim(host);
+    status.status = usbredirhost_claim(host, 0);
 
 exit:
     status.configuration = host->active_config;
