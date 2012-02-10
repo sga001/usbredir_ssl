@@ -111,6 +111,7 @@ struct usbredirhost {
     int active_config;
     int claimed;
     int disconnected;
+    int rejected;
     struct usbredirhost_ep endpoint[MAX_ENDPOINTS];
     uint8_t driver_detached[MAX_INTERFACES];
     uint8_t alt_setting[MAX_INTERFACES];
@@ -145,6 +146,7 @@ static void va_log(struct usbredirhost *host, int level,
                             "usbredirhost: " __VA_ARGS__)
 
 static void usbredirhost_hello(void *priv, struct usb_redir_hello_header *h);
+static void usbredirhost_device_reject(void *priv);
 static void usbredirhost_reset(void *priv);
 static void usbredirhost_set_configuration(void *priv, uint32_t id,
     struct usb_redir_set_configuration_header *set_configuration);
@@ -197,6 +199,11 @@ static void usbredirhost_log(void *priv, int level, const char *msg)
 static int usbredirhost_read(void *priv, uint8_t *data, int count)
 {
     struct usbredirhost *host = priv;
+
+    if (host->rejected) {
+        host->rejected = 0;
+        return usbredirhost_read_device_rejected;
+    }
 
     return host->read_func(host->func_priv, data, count);
 }
@@ -508,6 +515,7 @@ struct usbredirhost *usbredirhost_open_full(
     host->parser->read_func = usbredirhost_read;
     host->parser->write_func = usbredirhost_write;
     host->parser->hello_func = usbredirhost_hello;
+    host->parser->device_reject_func = usbredirhost_device_reject;
     host->parser->reset_func = usbredirhost_reset;
     host->parser->set_configuration_func = usbredirhost_set_configuration;
     host->parser->get_configuration_func = usbredirhost_get_configuration;
@@ -541,6 +549,7 @@ struct usbredirhost *usbredirhost_open_full(
     }
 
     usbredirparser_caps_set_cap(caps, usb_redir_cap_connect_device_version);
+    usbredirparser_caps_set_cap(caps, usb_redir_cap_reject_device);
 
     usbredirparser_init(host->parser, version, caps, USB_REDIR_CAPS_SIZE,
                         parser_flags);
@@ -1295,6 +1304,14 @@ static void usbredirhost_hello(void *priv, struct usb_redir_hello_header *h)
 
     usbredirparser_send_device_connect(host->parser, &device_connect);
     FLUSH(host);
+}
+
+static void usbredirhost_device_reject(void *priv)
+{
+    struct usbredirhost *host = priv;
+
+    INFO("device rejected");
+    host->rejected = 1;
 }
 
 static void usbredirhost_reset(void *priv)

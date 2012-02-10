@@ -64,6 +64,7 @@ typedef void (*usbredirparser_hello)(void *priv,
 typedef void (*usbredirparser_device_connect)(void *priv,
     struct usb_redir_device_connect_header *device_connect);
 typedef void (*usbredirparser_device_disconnect)(void *priv);
+typedef void (*usbredirparser_device_reject)(void *priv);
 typedef void (*usbredirparser_reset)(void *priv);
 typedef void (*usbredirparser_interface_info)(void *priv,
     struct usb_redir_interface_info_header *interface_info);
@@ -165,6 +166,8 @@ struct usbredirparser {
     usbredirparser_free_lock free_lock_func;
     /* usbredir 0.3.2 new control packet complete callbacks */
     usbredirparser_hello hello_func;
+    /* usbredir 0.3.4 new control packet complete callbacks */
+    usbredirparser_device_reject device_reject_func;
 };
 
 /* Allocate a usbredirparser, after this the app should set the callback app
@@ -198,11 +201,14 @@ int usbredirparser_have_cap(struct usbredirparser *parser, int cap);
 int usbredirparser_peer_has_cap(struct usbredirparser *parser, int cap);
 
 /* Call this whenever there is data ready from the otherside to parse
-   returns 0 on success, -1 if a read error happened, -2 if a parse error
-   happened. If a read error happened this function will continue where it
-   left of the last time on the next call. If a parse error happened it will
-   skip to the next packet (*) on the next call.
+   On an usbredirparser_read_io_error this function will continue where it
+   left of the last time on the next call. On an
+   usbredirparser_read_parse_error it will skip to the next packet (*).
    *) As determined by the faulty's package headers length field */
+enum {
+    usbredirparser_read_io_error    = -1,
+    usbredirparser_read_parse_error = -2,
+};
 int usbredirparser_do_read(struct usbredirparser *parser);
 
 /* If this returns true the parser has data queued to write to its peer */
@@ -212,6 +218,9 @@ int usbredirparser_has_data_to_write(struct usbredirparser *parser);
    returns 0 on success, -1 if a write error happened.
    If a write error happened, this function will retry writing any queued data
    on the next call, and will continue doing so until it has succeeded! */
+enum {
+    usbredirparser_write_io_error   = -1,
+};
 int usbredirparser_do_write(struct usbredirparser *parser);
 
 /* See usbredirparser_write documentation */
@@ -236,6 +245,7 @@ uint32_t *usbredirparser_get_peer_caps(int *caps_len_ret);
 void usbredirparser_send_device_connect(struct usbredirparser *parser,
     struct usb_redir_device_connect_header *device_connect);
 void usbredirparser_send_device_disconnect(struct usbredirparser *parser);
+void usbredirparser_send_device_reject(struct usbredirparser *parser);
 void usbredirparser_send_reset(struct usbredirparser *parser);
 void usbredirparser_send_interface_info(struct usbredirparser *parser,
     struct usb_redir_interface_info_header *interface_info);

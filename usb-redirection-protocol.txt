@@ -42,11 +42,17 @@ Version 0.3, released 14 July 2011
 -Drop usb_redir_reset_status, instead if reconnecting to the device fails
  after reset the usb-host will send a usb_redir_device_disconnect packet
 
-Version 0.3.2, released 24 December 2011
+Version 0.3.2, released  3 January 2012
 -The usb_redir_device_connect_header has been extended with a
  device_version_bcd field. This is only send / received if both sides
  have the usb_redir_cap_connect_device_version capability
 
+Version 0.3.3, released 12 January 2012
+- No protocol changes
+
+Version 0.3.4, released FIXME 2012
+- Add an usb_redir_device_reject packet to allow notifying the usb-host when
+  an usb-guest rejects a device because of usb-guest side device filtering
 
 USB redirerection protocol version 0.3
 --------------------------------------
@@ -140,6 +146,7 @@ usb_redir_alloc_bulk_streams
 usb_redir_free_bulk_streams
 usb_redir_bulk_streams_status
 usb_redir_cancel_data_packet
+usb_redir_device_reject
 
 data packets:
 usb_redir_control_packet
@@ -195,7 +202,12 @@ etc. the value is 64 + capabilities-array-size * sizeof(uint32_t).
 Currently the following capabilities are defined:
 
 enum {
-    usb_redir_cap_bulk_streams, /* USB 3 bulk streams are supported */
+    /* USB 3 bulk streams are supported ? */
+    usb_redir_cap_bulk_streams, 
+    /* The device_connect packet has the device_version_bcd field ? */
+    usb_redir_cap_connect_device_version,
+    /* Knows how to handle the usb_redir_device_reject packet ? */
+    usb_redir_cap_reject_device,
 };
 
 usb_redir_device_connect
@@ -250,6 +262,22 @@ No packet type specific additional data.
 This packet may be send by the usb-host to indicate that the device has been
 disconnect (unplugged). Note on some platforms the usb-host may not become
 aware of the disconnection until a usb packet is send to the device.
+
+usb_redir_device_reject
+-----------------------
+
+usb_redir_header.type:    usb_redir_device_reject
+usb_redir_header.length:  0
+usb_redir_header.id:      0 (always as this is an unsolicited packet)
+
+No packet type specific header.
+
+No packet type specific additional data.
+
+This packet may be send by the usb-guest to indicate to the usb-host that the
+device has been rejected. Usually the usb-guest will send this after receiving
+a usb_redir_device_connect or usb_redir_interface_info packet which fails
+to match an usb-guest side device filter.
 
 usb_redir_reset
 ---------------

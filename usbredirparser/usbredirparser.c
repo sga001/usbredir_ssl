@@ -232,6 +232,12 @@ static int usbredirparser_get_type_header_len(
         } else {
             return -1;
         }
+    case usb_redir_device_reject:
+        if (command_for_host) {
+            return 0;
+        } else {
+            return -1;
+        }
     case usb_redir_reset:
         if (command_for_host) {
             return 0; /* No packet type specific header */
@@ -377,9 +383,11 @@ static int usbredirparser_expect_extra_data(struct usbredirparser_priv *parser)
 }
 
 static int usbredirparser_verify_type_header(
-    struct usbredirparser_priv *parser,
+    struct usbredirparser *parser_pub,
     int32_t type, void *header, uint8_t *data, int data_len, int send)
 {
+    struct usbredirparser_priv *parser =
+        (struct usbredirparser_priv *)parser_pub;
     int command_for_host = 0, expect_extra_data = 0;
     int length = 0, ep = -1;
 
@@ -400,6 +408,15 @@ static int usbredirparser_verify_type_header(
         }
         break;
     }
+    case usb_redir_device_reject:
+        if ((send && !usbredirparser_peer_has_cap(parser_pub,
+                                             usb_redir_cap_reject_device)) ||
+            (!send && !usbredirparser_have_cap(parser_pub,
+                                             usb_redir_cap_reject_device))) {
+            ERROR("device_reject without cap_reject_device");
+            return 0;
+        }
+        break;
     case usb_redir_control_packet:
         length = ((struct usb_redir_control_packet_header *)header)->length;
         ep = ((struct usb_redir_control_packet_header *)header)->endpoint;
@@ -465,6 +482,9 @@ static void usbredirparser_call_type_func(struct usbredirparser_priv *parser)
         break;
     case usb_redir_device_disconnect:
         parser->callb.device_disconnect_func(parser->callb.priv);
+        break;
+    case usb_redir_device_reject:
+        parser->callb.device_reject_func(parser->callb.priv);
         break;
     case usb_redir_reset:
         parser->callb.reset_func(parser->callb.priv);
@@ -663,7 +683,7 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
         } else if (parser->type_header_read < parser->type_header_len) {
             parser->type_header_read += r;
             if (parser->type_header_read == parser->type_header_len) {
-                    if (!usbredirparser_verify_type_header(parser,
+                    if (!usbredirparser_verify_type_header(parser_pub,
                             parser->header.type, parser->type_header,
                             parser->data, parser->data_len, 0)) {
                         parser->to_skip = parser->data_len;
@@ -759,7 +779,7 @@ static void usbredirparser_queue(struct usbredirparser *parser_pub,
         return;
     }
 
-    if (!usbredirparser_verify_type_header(parser, type, type_header_in,
+    if (!usbredirparser_verify_type_header(parser_pub, type, type_header_in,
                                            data_in, data_len, 1)) {
         ERROR("usbredirparser_send_* call invalid params, please report!!");
         return;
@@ -811,6 +831,11 @@ void usbredirparser_send_device_disconnect(struct usbredirparser *parser)
 {
     usbredirparser_queue(parser, usb_redir_device_disconnect, 0, NULL,
                          NULL, 0);
+}
+
+void usbredirparser_send_device_reject(struct usbredirparser *parser)
+{
+    usbredirparser_queue(parser, usb_redir_device_reject, 0, NULL, NULL, 0);
 }
 
 void usbredirparser_send_reset(struct usbredirparser *parser)

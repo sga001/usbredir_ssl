@@ -94,11 +94,17 @@ void usbredirhost_close(struct usbredirhost *host);
 
 /* Call this whenever there is data ready for the usbredirhost to read from
    the usb-guest
-   returns 0 on success, -1 if a read error happened, -2 if a parse error
-   happened. If a read error happened this function will continue where it
-   left of the last time on the next call. If a parse error happened it will
-   skip to the next packet (*) on the next call.
+   returns 0 on success, or an error code from the below enum on error.
+   On an usbredirhost_read_io_error this function will continue where it
+   left of the last time on the next call. On an usbredirhost_read_parse_error
+   it will skip to the next packet (*). On an usbredirhost_read_device_rejected
+   error, you are expected to call usbredirhost_close().
    *) As determined by the faulty's package headers length field */
+enum {
+    usbredirhost_read_io_error        = -1,
+    usbredirhost_read_parse_error     = -2,
+    usbredirhost_read_device_rejected = -3,
+};
 int usbredirhost_read_guest_data(struct usbredirhost *host);
 
 /* If this returns true there is data queued to write to the usb-guest */
@@ -108,6 +114,9 @@ int usbredirhost_has_data_to_write(struct usbredirhost *host);
    returns 0 on success, -1 if a write error happened.
    If a write error happened, this function will retry writing any queued data
    on the next call, and will continue doing so until it has succeeded! */
+enum {
+    usbredirhost_write_io_error       = -1,
+};
 int usbredirhost_write_guest_data(struct usbredirhost *host);
 
 /* When passing the usbredirhost_fl_write_cb_owns_buffer flag to
