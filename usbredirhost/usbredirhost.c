@@ -112,6 +112,7 @@ struct usbredirhost {
     int claimed;
     int disconnected;
     int rejected;
+    int cancels_pending;
     struct usbredirhost_ep endpoint[MAX_ENDPOINTS];
     uint8_t driver_detached[MAX_INTERFACES];
     uint8_t alt_setting[MAX_INTERFACES];
@@ -181,11 +182,11 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
     struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len);
 
-static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
+static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     uint8_t ep, int free);
-static int usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
+static void usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
     uint8_t ep, int free);
-static int usbredirhost_cancel_interrupt_in_transfer(
+static void usbredirhost_cancel_interrupt_in_transfer(
     struct usbredirhost *host, uint8_t ep);
 static void usbredirhost_free_transfer(struct usbredirtransfer *transfer);
 
@@ -582,7 +583,7 @@ struct usbredirhost *usbredirhost_open_full(
 
 void usbredirhost_close(struct usbredirhost *host)
 {
-    int i, cancelled = 0;
+    int i, wait;
     struct usbredirtransfer *t;
     struct timeval tv;
 
@@ -593,29 +594,29 @@ void usbredirhost_close(struct usbredirhost *host)
     for (i = 0; i < MAX_ENDPOINTS; i++) {
         switch (host->endpoint[i].type) {
         case usb_redir_type_iso:
-            cancelled += usbredirhost_cancel_iso_stream(host, I2EP(i), 1);
+            usbredirhost_cancel_iso_stream(host, I2EP(i), 1);
             break;
         case usb_redir_type_interrupt:
-            if (i & 0x10) {
-                cancelled +=
-                    usbredirhost_cancel_interrupt_in_transfer(host, I2EP(i));
-            }
+            if (i & 0x10)
+                usbredirhost_cancel_interrupt_in_transfer(host, I2EP(i));
             break;
         }
     }
+    LOCK(host);
+    wait = host->cancels_pending;
     for (t = host->transfers_head.next; t; t = t->next) {
         libusb_cancel_transfer(t->transfer);
-        cancelled++;
+        wait = 1;
     }
+    UNLOCK(host);
 
-    DEBUG("cancelled %d transfers on device close", cancelled);
-    /* On linux libusb_handle_events* handles one completion before returning,
-       so we need to call it once for each cancelled transfer */
-    while (cancelled) {
+    while (wait) {
         memset(&tv, 0, sizeof(tv));
         tv.tv_usec = 2500;
         libusb_handle_events_timeout(host->ctx, &tv);
-        cancelled--;
+        LOCK(host);
+        wait = host->cancels_pending || host->transfers_head.next;
+        UNLOCK(host);
     }
 
     if (host->claimed && !host->disconnected) {
@@ -891,6 +892,7 @@ static void usbredirhost_iso_packet_complete(
 
     LOCK(host);
     if (transfer->cancelled) {
+        host->cancels_pending--;
         usbredirhost_free_transfer(transfer);
         goto unlock;
     }
@@ -1057,21 +1059,20 @@ alloc_error:
     return usb_redir_ioerror;
 }
 
-static int usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
+static void usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
     uint8_t ep, int do_free)
 {
-    int i, cancelled = 0;
+    int i;
     struct usbredirtransfer *transfer;
 
     for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
         transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
-        if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
+        if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX)
             libusb_cancel_transfer(transfer->transfer);
-            cancelled++;
-        }
         if (do_free) {
             if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
                 transfer->cancelled = 1;
+                host->cancels_pending++;
             } else {
                 usbredirhost_free_transfer(transfer);
             }
@@ -1087,19 +1088,14 @@ static int usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
         host->endpoint[EP2I(ep)].iso_pkts_per_transfer = 0;
         host->endpoint[EP2I(ep)].iso_transfer_count = 0;
     }
-    return cancelled;
 }
 
-static int usbredirhost_cancel_iso_stream(struct usbredirhost *host,
+static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     uint8_t ep, int do_free)
 {
-    int ret;
-
     LOCK(host);
-    ret = usbredirhost_cancel_iso_stream_unlocked(host, ep, do_free);
+    usbredirhost_cancel_iso_stream_unlocked(host, ep, do_free);
     UNLOCK(host);
-
-    return ret;
 }
 
 /**************************************************************************/
@@ -1161,6 +1157,7 @@ static void usbredirhost_interrupt_packet_complete(
     /* Everything below is for input endpoints */
     LOCK(host);
     if (transfer->cancelled) {
+        host->cancels_pending--;
         usbredirhost_free_transfer(transfer);
         goto unlock;
     }
@@ -1253,11 +1250,10 @@ static int usbredirhost_alloc_interrupt_in_transfer(struct usbredirhost *host,
     return usb_redir_success;
 }
 
-static int usbredirhost_cancel_interrupt_in_transfer(
+static void usbredirhost_cancel_interrupt_in_transfer(
     struct usbredirhost *host, uint8_t ep)
 {
     struct usbredirtransfer *transfer;
-    int ret = 0;
 
     LOCK(host);
     transfer = host->endpoint[EP2I(ep)].interrupt_in_transfer;
@@ -1266,12 +1262,10 @@ static int usbredirhost_cancel_interrupt_in_transfer(
 
     libusb_cancel_transfer(transfer->transfer);
     transfer->cancelled = 1;
+    host->cancels_pending++;
     host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
-    ret = 1;
 unlock:
     UNLOCK(host);
-
-    return ret;
 }
 
 /**************************************************************************/
