@@ -1168,9 +1168,6 @@ static void usbredirhost_interrupt_packet_complete(
     switch (r) {
     case LIBUSB_TRANSFER_COMPLETED:
         break;
-    case LIBUSB_TRANSFER_CANCELLED:
-        /* intentionally stopped */
-        goto unlock;
     case LIBUSB_TRANSFER_STALL:
         WARNING("interrupt endpoint %02X stalled, clearing stall", ep);
         r = libusb_clear_halt(host->handle, ep);
@@ -1186,10 +1183,9 @@ static void usbredirhost_interrupt_packet_complete(
         goto resubmit;
     case LIBUSB_TRANSFER_NO_DEVICE:
         usbredirhost_handle_disconnect(host);
+        usbredirhost_free_transfer(transfer);
+        host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
         goto unlock;
-    case LIBUSB_TRANSFER_OVERFLOW:
-    case LIBUSB_TRANSFER_ERROR:
-    case LIBUSB_TRANSFER_TIMED_OUT:
     default:
         ERROR("interrupt in error on endpoint %02X: %d", ep, r);
         len = 0;
