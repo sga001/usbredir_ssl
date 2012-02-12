@@ -1601,7 +1601,7 @@ static void usbredirhost_cancel_data_packet(void *priv, uint32_t id)
      * cancel it.
      *
      * Doing this means libusb taking the transfer lock, while
-     * we are holding our own lock, this is ok, since libusb release the
+     * we are holding our own lock, this is ok, since libusb releases the
      * transfer lock before calling the packet completion callback, so there
      * is no deadlock here.
      */
