@@ -1531,27 +1531,27 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint32_t id,
     uint8_t ep = start_interrupt_receiving->endpoint;
     int status;
 
+    LOCK(host);
+
     if (host->disconnected) {
-        usbredirhost_send_interrupt_recv_status(host, id, ep,
-                                                usb_redir_ioerror);
-        FLUSH(host);
-        return;
+        status = usb_redir_ioerror;
+        goto leave;
     }
 
     if (host->endpoint[EP2I(ep)].interrupt_in_transfer) {
         ERROR("received interrupt start for already active ep %02X", ep);
-        usbredirhost_send_interrupt_recv_status(host, id, ep, usb_redir_inval);
-        FLUSH(host);
-        return;
+        status = usb_redir_inval;
+        goto leave;
     }
 
     status = usbredirhost_alloc_interrupt_in_transfer(host, ep);
     if (status != usb_redir_success) {
-        usbredirhost_send_interrupt_recv_status(host, id, ep, usb_redir_stall);
-        FLUSH(host);
-        return;
+        status = usb_redir_stall;
+        goto leave;
     }
     status = usbredirhost_submit_interrupt_in_transfer(host, ep);
+leave:
+    UNLOCK(host);
     usbredirhost_send_interrupt_recv_status(host, id, ep, status);
     FLUSH(host);
 }
