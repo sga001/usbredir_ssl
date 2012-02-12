@@ -722,12 +722,8 @@ static void usbredirhost_remove_and_free_transfer(
         transfer->next->prev = transfer->prev;
     if (transfer->prev)
         transfer->prev->next = transfer->next;
-    /*
-     * The free must be done with the lock held, see
-     * usbredirhost_cancel_data_packet().
-     */
-    usbredirhost_free_transfer(transfer);
     UNLOCK(host);
+    usbredirhost_free_transfer(transfer);
 }
 
 /* Called from close and parser read callbacks */
