@@ -182,10 +182,12 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
     struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len);
 
+static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
+    uint8_t ep, uint8_t pkts_per_transfer, uint8_t transfer_count);
 static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
-    uint8_t ep, int free);
+    uint8_t ep);
 static void usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
-    uint8_t ep, int free);
+    uint8_t ep);
 static void usbredirhost_cancel_interrupt_in_transfer(
     struct usbredirhost *host, uint8_t ep);
 static void usbredirhost_free_transfer(struct usbredirtransfer *transfer);
@@ -594,7 +596,7 @@ void usbredirhost_close(struct usbredirhost *host)
     for (i = 0; i < MAX_ENDPOINTS; i++) {
         switch (host->endpoint[i].type) {
         case usb_redir_type_iso:
-            usbredirhost_cancel_iso_stream(host, I2EP(i), 1);
+            usbredirhost_cancel_iso_stream(host, I2EP(i));
             break;
         case usb_redir_type_interrupt:
             if (i & 0x10)
@@ -815,7 +817,7 @@ static int usbredirhost_submit_iso_transfer_unlocked(struct usbredirhost *host,
         uint8_t ep = transfer->transfer->endpoint;
         ERROR("submitting iso transfer on ep %02X: %d, stopping stream",
               (unsigned int)ep, r);
-        usbredirhost_cancel_iso_stream_unlocked(host, ep, 1);
+        usbredirhost_cancel_iso_stream_unlocked(host, ep);
         return libusb_status_or_error_to_redir_status(host, r);
     }
 
@@ -841,17 +843,25 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
     case LIBUSB_TRANSFER_CANCELLED:
         /* Stream was intentionally stopped */
         return 2;
-    case LIBUSB_TRANSFER_STALL:
-        /* Uhoh, Cancel the stream (but don't free it), clear stall
+    case LIBUSB_TRANSFER_STALL: {
+        uint8_t pkts_per_transfer, transfer_count;
+
+        /* Uhoh, Cancel the stream, clear stall, on success re-alloc
            and in case of an input stream resubmit the transfers */
         WARNING("iso stream on endpoint %02X stalled, clearing stall",
                 (unsigned int)ep);
-        usbredirhost_cancel_iso_stream_unlocked(host, ep, 0);
+        pkts_per_transfer = host->endpoint[EP2I(ep)].iso_pkts_per_transfer;
+        transfer_count = host->endpoint[EP2I(ep)].iso_transfer_count;
+        usbredirhost_cancel_iso_stream_unlocked(host, ep);
         r = libusb_clear_halt(host->handle, ep);
         if (r < 0) {
             usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
-            /* Failed to clear stall, free iso buffers */
-            usbredirhost_cancel_iso_stream_unlocked(host, ep, 1);
+            return 2;
+        }
+        status = usbredirhost_alloc_iso_stream(host, ep, pkts_per_transfer,
+                                               transfer_count);
+        if (status != usb_redir_success) {
+            usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
             return 2;
         }
         if (ep & LIBUSB_ENDPOINT_IN) {
@@ -870,6 +880,7 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
         }
         /* No iso status message, stall successfully cleared */
         return 2;
+    }
     case LIBUSB_TRANSFER_NO_DEVICE:
         usbredirhost_handle_disconnect(host);
         return 2;
@@ -1060,41 +1071,34 @@ alloc_error:
 }
 
 static void usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
-    uint8_t ep, int do_free)
+    uint8_t ep)
 {
     int i;
     struct usbredirtransfer *transfer;
 
     for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
         transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
-        if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX)
+        if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
             libusb_cancel_transfer(transfer->transfer);
-        if (do_free) {
-            if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
-                transfer->cancelled = 1;
-                host->cancels_pending++;
-            } else {
-                usbredirhost_free_transfer(transfer);
-            }
-            host->endpoint[EP2I(ep)].iso_transfer[i] = NULL;
+            transfer->cancelled = 1;
+            host->cancels_pending++;
         } else {
-            transfer->iso_packet_idx = 0;
+            usbredirhost_free_transfer(transfer);
         }
+        host->endpoint[EP2I(ep)].iso_transfer[i] = NULL;
     }
     host->endpoint[EP2I(ep)].iso_out_idx = 0;
     host->endpoint[EP2I(ep)].iso_started = 0;
     host->endpoint[EP2I(ep)].iso_drop_packets = 0;
-    if (do_free) {
-        host->endpoint[EP2I(ep)].iso_pkts_per_transfer = 0;
-        host->endpoint[EP2I(ep)].iso_transfer_count = 0;
-    }
+    host->endpoint[EP2I(ep)].iso_pkts_per_transfer = 0;
+    host->endpoint[EP2I(ep)].iso_transfer_count = 0;
 }
 
 static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
-    uint8_t ep, int do_free)
+    uint8_t ep)
 {
     LOCK(host);
-    usbredirhost_cancel_iso_stream_unlocked(host, ep, do_free);
+    usbredirhost_cancel_iso_stream_unlocked(host, ep);
     UNLOCK(host);
 }
 
@@ -1345,7 +1349,7 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
     for (i = 0; i < MAX_ENDPOINTS; i++) {
         switch (host->endpoint[i].type) {
         case usb_redir_type_iso:
-            usbredirhost_cancel_iso_stream(host, I2EP(i), 1);
+            usbredirhost_cancel_iso_stream(host, I2EP(i));
             break;
         case usb_redir_type_interrupt:
             if (i & 0x10) {
@@ -1417,7 +1421,7 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
         uint8_t ep = intf_desc->endpoint[j].bEndpointAddress;
         switch (host->endpoint[EP2I(ep)].type) {
         case usb_redir_type_iso:
-            usbredirhost_cancel_iso_stream(host, ep, 1);
+            usbredirhost_cancel_iso_stream(host, ep);
             break;
         case usb_redir_type_interrupt:
             if (ep & LIBUSB_ENDPOINT_IN) {
@@ -1519,7 +1523,7 @@ static void usbredirhost_stop_iso_stream(void *priv, uint32_t id,
     struct usbredirhost *host = priv;
     uint8_t ep = stop_iso_stream->endpoint;
 
-    usbredirhost_cancel_iso_stream(host, ep, 1);
+    usbredirhost_cancel_iso_stream(host, ep);
     usbredirhost_send_iso_status(host, id, ep, usb_redir_success);
     FLUSH(host);
 }
