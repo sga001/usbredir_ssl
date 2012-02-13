@@ -48,13 +48,7 @@ typedef void (*usbredirhost_flush_writes)(void *priv);
       to make sure that libusb_handle_events gets called (using the
       libusb_context from the passed in libusb_device_handle) when there are
       events waiting on the filedescriptors libusb_get_pollfds returns
-   3) usbredirhost is *not* multithread safe it is the callers responsibility
-      to make sure that no usbredirhost methods are called at the same time
-      as libusb_handle_events
-   4) usbredirhost is re-entrant safe, that is, it is ok to have one thread
-      per usbredirhost without locking between the threads as long as each
-      thread has its own libusb_context. IOW usbredirhost does not use
-      static or global variables.
+   3) usbredirhost is partially multi-thread safe, see README.multi-thread
 */
 
 enum {
