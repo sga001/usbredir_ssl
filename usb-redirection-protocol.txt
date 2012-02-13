@@ -51,8 +51,8 @@ Version 0.3.3, released 12 January 2012
 - No protocol changes
 
 Version 0.3.4, released FIXME 2012
-- Add an usb_redir_device_reject packet to allow notifying the usb-host when
-  an usb-guest rejects a device because of usb-guest side device filtering
+- Add usb_redir_filter_reject and usb_redir_filter_filter packets and
+  an usb_redir_cap_filter capability flag
 
 USB redirerection protocol version 0.3
 --------------------------------------
@@ -146,7 +146,8 @@ usb_redir_alloc_bulk_streams
 usb_redir_free_bulk_streams
 usb_redir_bulk_streams_status
 usb_redir_cancel_data_packet
-usb_redir_device_reject
+usb_redir_filter_reject
+usb_redir_filter_filter
 
 data packets:
 usb_redir_control_packet
@@ -202,12 +203,12 @@ etc. the value is 64 + capabilities-array-size * sizeof(uint32_t).
 Currently the following capabilities are defined:
 
 enum {
-    /* USB 3 bulk streams are supported ? */
+    /* Supports USB 3 bulk streams */
     usb_redir_cap_bulk_streams, 
-    /* The device_connect packet has the device_version_bcd field ? */
+    /* The device_connect packet has the device_version_bcd field */
     usb_redir_cap_connect_device_version,
-    /* Knows how to handle the usb_redir_device_reject packet ? */
-    usb_redir_cap_reject_device,
+    /* Supports usb_redir_filter_reject and usb_redir_filter_filter pkts */
+    usb_redir_cap_filter,
 };
 
 usb_redir_device_connect
@@ -262,22 +263,6 @@ No packet type specific additional data.
 This packet may be send by the usb-host to indicate that the device has been
 disconnect (unplugged). Note on some platforms the usb-host may not become
 aware of the disconnection until a usb packet is send to the device.
-
-usb_redir_device_reject
------------------------
-
-usb_redir_header.type:    usb_redir_device_reject
-usb_redir_header.length:  0
-usb_redir_header.id:      0 (always as this is an unsolicited packet)
-
-No packet type specific header.
-
-No packet type specific additional data.
-
-This packet may be send by the usb-guest to indicate to the usb-host that the
-device has been rejected. Usually the usb-guest will send this after receiving
-a usb_redir_device_connect or usb_redir_interface_info packet which fails
-to match an usb-guest side device filter.
 
 usb_redir_reset
 ---------------
@@ -650,6 +635,55 @@ Note that the usb-guest will always receive back a data packet of the same type
 and with the same id, the usb-guest can check if the packet completed
 normally (before the cancel packet was processed by the usb-host), or was
 cancelled by looking at the return data packet's status field.
+
+usb_redir_filter_reject
+-----------------------
+
+usb_redir_header.type:    usb_redir_filter_reject
+usb_redir_header.length:  0
+usb_redir_header.id:      0 (always as this is an unsolicited packet)
+
+No packet type specific header.
+
+No packet type specific additional data.
+
+This packet is send by the usb-guest after receiving a usb_redir_device_connect
+or usb_redir_interface_info packet which was rejected by an usb-guest side
+device filter. This packet should only be send to usb-hosts with the
+usb_redir_cap_filter capability.
+
+usb_redir_filter_filter
+-----------------------
+
+usb_redir_header.type:    usb_redir_filter_filter
+usb_redir_header.length:  string-length + 1 (for 0 termination)
+usb_redir_header.id:      0 (always as this is an unsolicited packet)
+
+No packet type specific header.
+
+The additional data contains a 0 terminated usredirfilter string.
+
+This packet can be send directly after the hello packet to inform the other
+side that a filter is in place and some devices may be rejected.
+
+An usredirfilter consists of one or more rules, where in string form each rule
+has the following format:
+   <class>,<vendor>,<product>,<version>,<allow>
+
+Values can be either in decimal format, or in hexadecimal format pre-fixed
+with 0x, a value of -1 can be used to allow any value.
+
+All rules of a filter are concatonated, separated by the '|' character
+to form a single usredirfilter string:
+   <rule1>|<rule2>|<rule3>
+
+If a device matches none of the rules the result of the filter is deny and
+the device will be rejected.
+
+For more info on filtering see usbredirfilter.h
+
+This packet should only be send to peers with the usb_redir_cap_filter
+capability.
 
 
 usb_redir_control_packet

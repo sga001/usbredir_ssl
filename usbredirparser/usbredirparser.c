@@ -26,6 +26,7 @@
 #include <string.h>
 #include "usbredirproto-compat.h"
 #include "usbredirparser.h"
+#include "usbredirfilter.h"
 
 /* Locking convenience macros */
 #define LOCK(parser) \
@@ -232,12 +233,6 @@ static int usbredirparser_get_type_header_len(
         } else {
             return -1;
         }
-    case usb_redir_device_reject:
-        if (command_for_host) {
-            return 0;
-        } else {
-            return -1;
-        }
     case usb_redir_reset:
         if (command_for_host) {
             return 0; /* No packet type specific header */
@@ -352,6 +347,14 @@ static int usbredirparser_get_type_header_len(
         } else {
             return -1;
         }
+    case usb_redir_filter_reject:
+        if (command_for_host) {
+            return 0;
+        } else {
+            return -1;
+        }
+    case usb_redir_filter_filter:
+        return 0;
     case usb_redir_control_packet:
         return sizeof(struct usb_redir_control_packet_header);
     case usb_redir_bulk_packet:
@@ -376,6 +379,7 @@ static int usbredirparser_expect_extra_data(struct usbredirparser_priv *parser)
     case usb_redir_bulk_packet:
     case usb_redir_iso_packet:
     case usb_redir_interrupt_packet:
+    case usb_redir_filter_filter:
         return 1;
     default:
         return 0;
@@ -408,12 +412,29 @@ static int usbredirparser_verify_type_header(
         }
         break;
     }
-    case usb_redir_device_reject:
+    case usb_redir_filter_reject:
         if ((send && !usbredirparser_peer_has_cap(parser_pub,
-                                             usb_redir_cap_reject_device)) ||
+                                             usb_redir_cap_filter)) ||
             (!send && !usbredirparser_have_cap(parser_pub,
-                                             usb_redir_cap_reject_device))) {
-            ERROR("device_reject without cap_reject_device");
+                                             usb_redir_cap_filter))) {
+            ERROR("filter_reject without cap_filter");
+            return 0;
+        }
+        break;
+    case usb_redir_filter_filter:
+        if ((send && !usbredirparser_peer_has_cap(parser_pub,
+                                             usb_redir_cap_filter)) ||
+            (!send && !usbredirparser_have_cap(parser_pub,
+                                             usb_redir_cap_filter))) {
+            ERROR("filter_filter without cap_filter");
+            return 0;
+        }
+        if (data_len < 1) {
+            ERROR("filter_filter without data");
+            return 0;
+        }
+        if (data[data_len - 1] != 0) {
+            ERROR("non 0 terminated filter_filter data");
             return 0;
         }
         break;
@@ -482,9 +503,6 @@ static void usbredirparser_call_type_func(struct usbredirparser_priv *parser)
         break;
     case usb_redir_device_disconnect:
         parser->callb.device_disconnect_func(parser->callb.priv);
-        break;
-    case usb_redir_device_reject:
-        parser->callb.device_reject_func(parser->callb.priv);
         break;
     case usb_redir_reset:
         parser->callb.reset_func(parser->callb.priv);
@@ -578,6 +596,22 @@ static void usbredirparser_call_type_func(struct usbredirparser_priv *parser)
         parser->callb.cancel_data_packet_func(parser->callb.priv,
             parser->header.id);
         break;
+    case usb_redir_filter_reject:
+        parser->callb.filter_reject_func(parser->callb.priv);
+        break;
+    case usb_redir_filter_filter: {
+        struct usbredirfilter_rule *rules;
+        int r, count;
+
+        r = usbredirfilter_string_to_rules(parser->data, ",", "|",
+                                           &rules, &count);
+        if (r) {
+            ERROR("parsing filter (5d), ignoring filter message", r);
+            break;
+        }
+        parser->callb.filter_filter_func(parser->callb.priv, rules, count);
+        break;
+    }
     case usb_redir_control_packet:
         parser->callb.control_packet_func(parser->callb.priv,
             parser->header.id,
@@ -831,11 +865,6 @@ void usbredirparser_send_device_disconnect(struct usbredirparser *parser)
                          NULL, 0);
 }
 
-void usbredirparser_send_device_reject(struct usbredirparser *parser)
-{
-    usbredirparser_queue(parser, usb_redir_device_reject, 0, NULL, NULL, 0);
-}
-
 void usbredirparser_send_reset(struct usbredirparser *parser)
 {
     usbredirparser_queue(parser, usb_redir_reset, 0, NULL, NULL, 0);
@@ -978,6 +1007,34 @@ void usbredirparser_send_cancel_data_packet(struct usbredirparser *parser,
 {
     usbredirparser_queue(parser, usb_redir_cancel_data_packet, id,
                          NULL, NULL, 0);
+}
+
+void usbredirparser_send_filter_reject(struct usbredirparser *parser)
+{
+    if (!usbredirparser_peer_has_cap(parser, usb_redir_cap_filter))
+        return;
+
+    usbredirparser_queue(parser, usb_redir_filter_reject, 0, NULL, NULL, 0);
+}
+
+void usbredirparser_send_filter_filter(struct usbredirparser *parser_pub,
+    struct usbredirfilter_rule *rules, int rules_count)
+{
+    struct usbredirparser_priv *parser =
+        (struct usbredirparser_priv *)parser_pub;
+    char *str;
+
+    if (!usbredirparser_peer_has_cap(parser_pub, usb_redir_cap_filter))
+        return;
+
+    str = usbredirfilter_rules_to_string(rules, rules_count, ",", "|");
+    if (!str) {
+        ERROR("creating filter string, not sending filter");
+        return;
+    }
+    usbredirparser_queue(parser_pub, usb_redir_filter_filter, 0, NULL,
+                         str, strlen(str) + 1);
+    free(str);
 }
 
 /* Data packets: */

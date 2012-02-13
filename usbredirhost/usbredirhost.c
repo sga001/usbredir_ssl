@@ -117,6 +117,8 @@ struct usbredirhost {
     uint8_t driver_detached[MAX_INTERFACES];
     uint8_t alt_setting[MAX_INTERFACES];
     struct usbredirtransfer transfers_head;
+    struct usbredirfilter_rule *filter_rules;
+    int filter_rules_count;
 };
 
 static void va_log(struct usbredirhost *host, int level,
@@ -147,7 +149,6 @@ static void va_log(struct usbredirhost *host, int level,
                             "usbredirhost: " __VA_ARGS__)
 
 static void usbredirhost_hello(void *priv, struct usb_redir_hello_header *h);
-static void usbredirhost_device_reject(void *priv);
 static void usbredirhost_reset(void *priv);
 static void usbredirhost_set_configuration(void *priv, uint32_t id,
     struct usb_redir_set_configuration_header *set_configuration);
@@ -169,6 +170,9 @@ static void usbredirhost_alloc_bulk_streams(void *priv, uint32_t id,
 static void usbredirhost_free_bulk_streams(void *priv, uint32_t id,
     struct usb_redir_free_bulk_streams_header *free_bulk_streams);
 static void usbredirhost_cancel_data_packet(void *priv, uint32_t id);
+static void usbredirhost_filter_reject(void *priv);
+static void usbredirhost_filter_filter(void *priv,
+    struct usbredirfilter_rule *rules, int rules_count);
 static void usbredirhost_control_packet(void *priv, uint32_t id,
     struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len);
@@ -519,7 +523,6 @@ struct usbredirhost *usbredirhost_open_full(
     host->parser->read_func = usbredirhost_read;
     host->parser->write_func = usbredirhost_write;
     host->parser->hello_func = usbredirhost_hello;
-    host->parser->device_reject_func = usbredirhost_device_reject;
     host->parser->reset_func = usbredirhost_reset;
     host->parser->set_configuration_func = usbredirhost_set_configuration;
     host->parser->get_configuration_func = usbredirhost_get_configuration;
@@ -534,6 +537,8 @@ struct usbredirhost *usbredirhost_open_full(
     host->parser->alloc_bulk_streams_func = usbredirhost_alloc_bulk_streams;
     host->parser->free_bulk_streams_func = usbredirhost_free_bulk_streams;
     host->parser->cancel_data_packet_func = usbredirhost_cancel_data_packet;
+    host->parser->filter_reject_func = usbredirhost_filter_reject;
+    host->parser->filter_filter_func = usbredirhost_filter_filter;
     host->parser->control_packet_func = usbredirhost_control_packet;
     host->parser->bulk_packet_func = usbredirhost_bulk_packet;
     host->parser->iso_packet_func = usbredirhost_iso_packet;
@@ -553,7 +558,7 @@ struct usbredirhost *usbredirhost_open_full(
     }
 
     usbredirparser_caps_set_cap(caps, usb_redir_cap_connect_device_version);
-    usbredirparser_caps_set_cap(caps, usb_redir_cap_reject_device);
+    usbredirparser_caps_set_cap(caps, usb_redir_cap_filter);
 
     usbredirparser_init(host->parser, version, caps, USB_REDIR_CAPS_SIZE,
                         parser_flags);
@@ -622,6 +627,7 @@ void usbredirhost_close(struct usbredirhost *host)
     if (host->parser) {
         usbredirparser_destroy(host->parser);
     }
+    free(host->filter_rules);
     free(host);
 }
 
@@ -1307,14 +1313,6 @@ static void usbredirhost_hello(void *priv, struct usb_redir_hello_header *h)
     FLUSH(host);
 }
 
-static void usbredirhost_device_reject(void *priv)
-{
-    struct usbredirhost *host = priv;
-
-    INFO("device rejected");
-    host->rejected = 1;
-}
-
 static void usbredirhost_reset(void *priv)
 {
     struct usbredirhost *host = priv;
@@ -1563,6 +1561,24 @@ static void usbredirhost_free_bulk_streams(void *priv, uint32_t id,
     struct usb_redir_free_bulk_streams_header *free_bulk_streams)
 {
     /* struct usbredirhost *host = priv; */
+}
+
+static void usbredirhost_filter_reject(void *priv)
+{
+    struct usbredirhost *host = priv;
+
+    INFO("device rejected");
+    host->rejected = 1;
+}
+
+static void usbredirhost_filter_filter(void *priv,
+    struct usbredirfilter_rule *rules, int rules_count)
+{
+    struct usbredirhost *host = priv;
+
+    free(host->filter_rules);
+    host->filter_rules = rules;
+    host->filter_rules_count = rules_count;
 }
 
 /**************************************************************************/
@@ -2023,6 +2039,13 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
 }
 
 /**************************************************************************/
+
+void usbredirhost_get_guest_filter(struct usbredirhost *host,
+    struct usbredirfilter_rule **rules_ret, int *rules_count_ret)
+{
+    *rules_ret = host->filter_rules;
+    *rules_count_ret = host->filter_rules_count;
+}
 
 int usbredirhost_check_device_filter(struct usbredirfilter_rule *rules,
     int rules_count, libusb_device *dev, int flags)

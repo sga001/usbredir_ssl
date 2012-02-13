@@ -24,6 +24,7 @@
 #include "usbredirproto.h"
 
 struct usbredirparser;
+struct usbredirfilter_rule;
 
 /* Called by a usbredirparser to log various messages */
 enum { usbredirparser_none, usbredirparser_error, usbredirparser_warning,
@@ -64,7 +65,6 @@ typedef void (*usbredirparser_hello)(void *priv,
 typedef void (*usbredirparser_device_connect)(void *priv,
     struct usb_redir_device_connect_header *device_connect);
 typedef void (*usbredirparser_device_disconnect)(void *priv);
-typedef void (*usbredirparser_device_reject)(void *priv);
 typedef void (*usbredirparser_reset)(void *priv);
 typedef void (*usbredirparser_interface_info)(void *priv,
     struct usb_redir_interface_info_header *interface_info);
@@ -100,6 +100,10 @@ typedef void (*usbredirparser_free_bulk_streams)(void *priv,
 typedef void (*usbredirparser_bulk_streams_status)(void *priv,
     uint32_t id, struct usb_redir_bulk_streams_status_header *bulk_streams_status);
 typedef void (*usbredirparser_cancel_data_packet)(void *priv, uint32_t id);
+typedef void (*usbredirparser_filter_reject)(void *priv);
+/* Note that the ownership of the rules array is passed on to the callback. */
+typedef void (*usbredirparser_filter_filter)(void *priv,
+    struct usbredirfilter_rule *rules, int rules_count);
 
 /* Data packets:
 
@@ -167,7 +171,8 @@ struct usbredirparser {
     /* usbredir 0.3.2 new control packet complete callbacks */
     usbredirparser_hello hello_func;
     /* usbredir 0.3.4 new control packet complete callbacks */
-    usbredirparser_device_reject device_reject_func;
+    usbredirparser_filter_reject filter_reject_func;
+    usbredirparser_filter_filter filter_filter_func;
 };
 
 /* Allocate a usbredirparser, after this the app should set the callback app
@@ -245,7 +250,6 @@ uint32_t *usbredirparser_get_peer_caps(int *caps_len_ret);
 void usbredirparser_send_device_connect(struct usbredirparser *parser,
     struct usb_redir_device_connect_header *device_connect);
 void usbredirparser_send_device_disconnect(struct usbredirparser *parser);
-void usbredirparser_send_device_reject(struct usbredirparser *parser);
 void usbredirparser_send_reset(struct usbredirparser *parser);
 void usbredirparser_send_interface_info(struct usbredirparser *parser,
     struct usb_redir_interface_info_header *interface_info);
@@ -297,6 +301,9 @@ void usbredirparser_send_bulk_streams_status(struct usbredirparser *parser,
     struct usb_redir_bulk_streams_status_header *bulk_streams_status);
 void usbredirparser_send_cancel_data_packet(struct usbredirparser *parser,
     uint32_t id);
+void usbredirparser_send_filter_reject(struct usbredirparser *parser);
+void usbredirparser_send_filter_filter(struct usbredirparser *parser,
+    struct usbredirfilter_rule *rules, int rules_count);
 /* Data packets: */
 void usbredirparser_send_control_packet(struct usbredirparser *parser,
     uint32_t id,

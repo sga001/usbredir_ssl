@@ -92,7 +92,8 @@ enum {
     usb_redir_free_bulk_streams,
     usb_redir_bulk_streams_status,
     usb_redir_cancel_data_packet,
-    usb_redir_device_reject,
+    usb_redir_filter_reject,
+    usb_redir_filter_filter,
 
     /* Data packets */
     usb_redir_control_packet = 100,
@@ -102,12 +103,12 @@ enum {
 };
 
 enum {
-    /* USB 3 bulk streams are supported ? */
+    /* Supports USB 3 bulk streams */
     usb_redir_cap_bulk_streams, 
-    /* The device_connect packet has the device_version_bcd field ? */
+    /* The device_connect packet has the device_version_bcd field */
     usb_redir_cap_connect_device_version,
-    /* Knows how to handle the usb_redir_device_reject packet ? */
-    usb_redir_cap_reject_device,
+    /* Supports usb_redir_filter_reject and usb_redir_filter_filter pkts */
+    usb_redir_cap_filter,
 };
 /* Number of uint32_t-s needed to hold all (known) capabilities */
 #define USB_REDIR_CAPS_SIZE 1
