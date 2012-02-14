@@ -682,24 +682,22 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
             }
         } else if (parser->type_header_read < parser->type_header_len) {
             parser->type_header_read += r;
-            if (parser->type_header_read == parser->type_header_len) {
-                    if (!usbredirparser_verify_type_header(parser_pub,
-                            parser->header.type, parser->type_header,
-                            parser->data, parser->data_len, 0)) {
-                        parser->to_skip = parser->data_len;
-                        return -2;
-                    }
-            }
         } else {
             parser->data_read += r;
             if (parser->data_read == parser->data_len) {
-                usbredirparser_call_type_func(parser);
+                r = usbredirparser_verify_type_header(parser_pub,
+                         parser->header.type, parser->type_header,
+                         parser->data, parser->data_len, 0);
+                if (r)
+                    usbredirparser_call_type_func(parser);
                 parser->header_read = 0;
                 parser->type_header_len  = 0;
                 parser->type_header_read = 0;
                 parser->data_len  = 0;
                 parser->data_read = 0;
                 parser->data = NULL;
+                if (!r)
+                    return -2;
             }
         }
     }
