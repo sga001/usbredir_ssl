@@ -293,7 +293,7 @@ static int usbredirhost_get_max_packetsize(uint16_t wMaxPacketSize)
 }
 
 /* Called from open/close and parser read callbacks */
-static void usbredirhost_parse_config(struct usbredirhost *host)
+static void usbredirhost_send_interface_n_ep_info(struct usbredirhost *host)
 {
     int i, j;
     const struct libusb_interface_descriptor *intf_desc;
@@ -302,11 +302,6 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
     uint8_t ep_address;
 
     for (i = 0; i < MAX_ENDPOINTS; i++) {
-        if ((i & 0x0f) == 0) {
-            host->endpoint[i].type = usb_redir_type_control;
-        } else {
-            host->endpoint[i].type = usb_redir_type_invalid;
-        }
         ep_info.type[i] = host->endpoint[i].type;
         ep_info.interface[i] = 0;
         ep_info.interval[i] = 0;
@@ -321,7 +316,67 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
         interface_info.interface_class[i] = intf_desc->bInterfaceClass;
         interface_info.interface_subclass[i] = intf_desc->bInterfaceSubClass;
         interface_info.interface_protocol[i] = intf_desc->bInterfaceProtocol;
-        
+
+        for (j = 0; j < intf_desc->bNumEndpoints; j++) {
+            ep_address = intf_desc->endpoint[j].bEndpointAddress;
+            ep_info.interval[EP2I(ep_address)] =
+                intf_desc->endpoint[j].bInterval;
+            ep_info.interface[EP2I(ep_address)] =
+                intf_desc->bInterfaceNumber;
+        }
+    }
+    usbredirparser_send_interface_info(host->parser, &interface_info);
+    usbredirparser_send_ep_info(host->parser, &ep_info);
+}
+
+/* Called from open/close and parser read callbacks */
+static void usbredirhost_send_device_connect(struct usbredirhost *host)
+{
+    struct usb_redir_device_connect_header device_connect;
+    enum libusb_speed speed;
+
+    speed = libusb_get_device_speed(host->dev);
+    switch (speed) {
+    case LIBUSB_SPEED_LOW:
+        device_connect.speed = usb_redir_speed_low; break;
+    case LIBUSB_SPEED_FULL:
+        device_connect.speed = usb_redir_speed_full; break;
+    case LIBUSB_SPEED_HIGH:
+        device_connect.speed = usb_redir_speed_high; break;
+    case LIBUSB_SPEED_SUPER:
+        device_connect.speed = usb_redir_speed_super; break;
+    default:
+        device_connect.speed = usb_redir_speed_unknown;
+    }
+    device_connect.device_class = host->desc.bDeviceClass;
+    device_connect.device_subclass = host->desc.bDeviceSubClass;
+    device_connect.device_protocol = host->desc.bDeviceProtocol;
+    device_connect.vendor_id = host->desc.idVendor;
+    device_connect.product_id = host->desc.idProduct;
+    device_connect.device_version_bcd = host->desc.bcdDevice;
+
+    usbredirparser_send_device_connect(host->parser, &device_connect);
+}
+
+/* Called from open/close and parser read callbacks */
+static void usbredirhost_parse_config(struct usbredirhost *host)
+{
+    int i, j;
+    const struct libusb_interface_descriptor *intf_desc;
+    uint8_t ep_address;
+
+    for (i = 0; i < MAX_ENDPOINTS; i++) {
+        if ((i & 0x0f) == 0) {
+            host->endpoint[i].type = usb_redir_type_control;
+        } else {
+            host->endpoint[i].type = usb_redir_type_invalid;
+        }
+    }
+
+    for (i = 0; i < host->config->bNumInterfaces; i++) {
+        intf_desc =
+            &host->config->interface[i].altsetting[host->alt_setting[i]];
+
         for (j = 0; j < intf_desc->bNumEndpoints; j++) {
             ep_address = intf_desc->endpoint[j].bEndpointAddress;
             /* FIXlibusb libusb_get_max_iso_packet_size always returns 0
@@ -331,17 +386,10 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
                     intf_desc->endpoint[j].wMaxPacketSize);
                 /* libusb_get_max_iso_packet_size(host->dev, ep_address); */
             host->endpoint[EP2I(ep_address)].type =
-            ep_info.type[EP2I(ep_address)] =
                 intf_desc->endpoint[j].bmAttributes &
                     LIBUSB_TRANSFER_TYPE_MASK;
-            ep_info.interval[EP2I(ep_address)] =
-                intf_desc->endpoint[j].bInterval;
-            ep_info.interface[EP2I(ep_address)] =
-                intf_desc->bInterfaceNumber;
         }
     }
-    usbredirparser_send_interface_info(host->parser, &interface_info);
-    usbredirparser_send_ep_info(host->parser, &ep_info);
 }
 
 /* Called from open/close and parser read callbacks */
@@ -1286,30 +1334,9 @@ unlock:
 static void usbredirhost_hello(void *priv, struct usb_redir_hello_header *h)
 {
     struct usbredirhost *host = priv;
-    struct usb_redir_device_connect_header device_connect;
-    enum libusb_speed speed;
 
-    speed = libusb_get_device_speed(host->dev);
-    switch (speed) {
-    case LIBUSB_SPEED_LOW:
-        device_connect.speed = usb_redir_speed_low; break;
-    case LIBUSB_SPEED_FULL:
-        device_connect.speed = usb_redir_speed_full; break;
-    case LIBUSB_SPEED_HIGH:
-        device_connect.speed = usb_redir_speed_high; break;
-    case LIBUSB_SPEED_SUPER:
-        device_connect.speed = usb_redir_speed_super; break;
-    default:
-        device_connect.speed = usb_redir_speed_unknown;
-    }
-    device_connect.device_class = host->desc.bDeviceClass;
-    device_connect.device_subclass = host->desc.bDeviceSubClass;
-    device_connect.device_protocol = host->desc.bDeviceProtocol;
-    device_connect.vendor_id = host->desc.idVendor;
-    device_connect.product_id = host->desc.idProduct;
-    device_connect.device_version_bcd = host->desc.bcdDevice;
-
-    usbredirparser_send_device_connect(host->parser, &device_connect);
+    usbredirhost_send_interface_n_ep_info(host);
+    usbredirhost_send_device_connect(host);
     FLUSH(host);
 }
 
@@ -1368,6 +1395,8 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
 
     host->active_config = set_config->configuration;
     status.status = usbredirhost_claim(host, 0);
+    if (status.status == usb_redir_success)
+        usbredirhost_send_interface_n_ep_info(host);
 
 exit:
     status.configuration = host->active_config;
@@ -1425,6 +1454,7 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
     }
     host->alt_setting[i] = set_alt_setting->alt;
     usbredirhost_parse_config(host);
+    usbredirhost_send_interface_n_ep_info(host);
 
 exit:
     status.alt = host->alt_setting[i];
