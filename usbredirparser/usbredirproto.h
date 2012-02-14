@@ -94,6 +94,7 @@ enum {
     usb_redir_cancel_data_packet,
     usb_redir_filter_reject,
     usb_redir_filter_filter,
+    usb_redir_device_disconnect_ack,
 
     /* Data packets */
     usb_redir_control_packet = 100,
@@ -109,6 +110,8 @@ enum {
     usb_redir_cap_connect_device_version,
     /* Supports usb_redir_filter_reject and usb_redir_filter_filter pkts */
     usb_redir_cap_filter,
+    /* Supports the usb_redir_device_disconnect_ack packet */
+    usb_redir_cap_device_disconnect_ack,
 };
 /* Number of uint32_t-s needed to hold all (known) capabilities */
 #define USB_REDIR_CAPS_SIZE 1

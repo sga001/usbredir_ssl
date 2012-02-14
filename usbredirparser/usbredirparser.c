@@ -115,6 +115,10 @@ void usbredirparser_init(struct usbredirparser *parser_pub,
         caps_len = USB_REDIR_CAPS_SIZE;
     }
     memcpy(parser->our_caps, caps, caps_len * sizeof(uint32_t));
+    /* libusbredirparser handles sending the ack internally */
+    if (!(flags & usbredirparser_fl_usb_host))
+        usbredirparser_caps_set_cap(parser->our_caps,
+                                    usb_redir_cap_device_disconnect_ack);
     usbredirparser_queue(parser_pub, usb_redir_hello, 0, &hello,
                          (uint8_t *)parser->our_caps,
                          USB_REDIR_CAPS_SIZE * sizeof(uint32_t));
@@ -355,6 +359,12 @@ static int usbredirparser_get_type_header_len(
         }
     case usb_redir_filter_filter:
         return 0;
+    case usb_redir_device_disconnect_ack:
+        if (command_for_host) {
+            return 0;
+        } else {
+            return -1;
+        }
     case usb_redir_control_packet:
         return sizeof(struct usb_redir_control_packet_header);
     case usb_redir_bulk_packet:
@@ -438,6 +448,15 @@ static int usbredirparser_verify_type_header(
             return 0;
         }
         break;
+    case usb_redir_device_disconnect_ack:
+        if ((send && !usbredirparser_peer_has_cap(parser_pub,
+                                     usb_redir_cap_device_disconnect_ack)) ||
+            (!send && !usbredirparser_have_cap(parser_pub,
+                                     usb_redir_cap_device_disconnect_ack))) {
+            ERROR("device_disconnect_ack without cap_device_disconnect_ack");
+            return 0;
+        }
+        break;
     case usb_redir_control_packet:
         length = ((struct usb_redir_control_packet_header *)header)->length;
         ep = ((struct usb_redir_control_packet_header *)header)->endpoint;
@@ -489,8 +508,11 @@ static int usbredirparser_verify_type_header(
     return 1; /* Verify ok */
 }
 
-static void usbredirparser_call_type_func(struct usbredirparser_priv *parser)
+static void usbredirparser_call_type_func(struct usbredirparser *parser_pub)
 {
+    struct usbredirparser_priv *parser =
+        (struct usbredirparser_priv *)parser_pub;
+
     switch (parser->header.type) {
     case usb_redir_hello:
         usbredirparser_handle_hello(parser,
@@ -503,6 +525,10 @@ static void usbredirparser_call_type_func(struct usbredirparser_priv *parser)
         break;
     case usb_redir_device_disconnect:
         parser->callb.device_disconnect_func(parser->callb.priv);
+        if (usbredirparser_peer_has_cap(parser_pub,
+                                        usb_redir_cap_device_disconnect_ack))
+            usbredirparser_queue(parser_pub, usb_redir_device_disconnect_ack,
+                                 0, NULL, NULL, 0);
         break;
     case usb_redir_reset:
         parser->callb.reset_func(parser->callb.priv);
@@ -612,6 +638,9 @@ static void usbredirparser_call_type_func(struct usbredirparser_priv *parser)
         parser->callb.filter_filter_func(parser->callb.priv, rules, count);
         break;
     }
+    case usb_redir_device_disconnect_ack:
+        parser->callb.device_disconnect_ack_func(parser->callb.priv);
+        break;
     case usb_redir_control_packet:
         parser->callb.control_packet_func(parser->callb.priv,
             parser->header.id,
@@ -723,7 +752,7 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
                          parser->header.type, parser->type_header,
                          parser->data, parser->data_len, 0);
                 if (r)
-                    usbredirparser_call_type_func(parser);
+                    usbredirparser_call_type_func(parser_pub);
                 parser->header_read = 0;
                 parser->type_header_len  = 0;
                 parser->type_header_read = 0;

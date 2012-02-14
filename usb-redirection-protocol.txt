@@ -53,6 +53,8 @@ Version 0.3.3, released 12 January 2012
 Version 0.3.4, released FIXME 2012
 - Add usb_redir_filter_reject and usb_redir_filter_filter packets and
   an usb_redir_cap_filter capability flag
+- Add an usb_redir_device_disconnect_ack packet and
+  an usb_redir_cap_device_disconnect_ack capability flag
 
 USB redirerection protocol version 0.3
 --------------------------------------
@@ -148,6 +150,7 @@ usb_redir_bulk_streams_status
 usb_redir_cancel_data_packet
 usb_redir_filter_reject
 usb_redir_filter_filter
+usb_redir_device_disconnect_ack
 
 data packets:
 usb_redir_control_packet
@@ -209,6 +212,8 @@ enum {
     usb_redir_cap_connect_device_version,
     /* Supports usb_redir_filter_reject and usb_redir_filter_filter pkts */
     usb_redir_cap_filter,
+    /* Supports the usb_redir_device_disconnect_ack packet */
+    usb_redir_cap_device_disconnect_ack,
 };
 
 usb_redir_device_connect
@@ -684,6 +689,28 @@ For more info on filtering see usbredirfilter.h
 
 This packet should only be send to peers with the usb_redir_cap_filter
 capability.
+
+usb_redir_device_disconnect_ack
+-------------------------------
+
+usb_redir_header.type:    usb_redir_device_disconnect_ack
+usb_redir_header.length:  0
+usb_redir_header.id:      0 (as the id of the device_disconnect is always 0)
+
+No packet type specific header.
+
+No packet type specific additional data.
+
+This packet is send by the usb-guest after having processed a
+usb_redir_device_disconnect packet send by the usb-host. This allows an
+usb-host which wants to re-use an existing connection to know that the
+usb-guest has seen the disconnect and will not send any more packets intended
+for the disconnected device. Without this there is a race where the usb-host
+may have a new device available, but it is still receiving packets intended for
+the old device as the usb-guest has not yet seen the disconnect.
+
+Note this packet is only send if both sides have the
+usb_redir_cap_device_disconnect_ack capability.
 
 
 usb_redir_control_packet

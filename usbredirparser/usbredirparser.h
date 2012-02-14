@@ -104,6 +104,7 @@ typedef void (*usbredirparser_filter_reject)(void *priv);
 /* Note that the ownership of the rules array is passed on to the callback. */
 typedef void (*usbredirparser_filter_filter)(void *priv,
     struct usbredirfilter_rule *rules, int rules_count);
+typedef void (*usbredirparser_device_disconnect_ack)(void *priv);
 
 /* Data packets:
 
@@ -173,6 +174,7 @@ struct usbredirparser {
     /* usbredir 0.3.4 new control packet complete callbacks */
     usbredirparser_filter_reject filter_reject_func;
     usbredirparser_filter_filter filter_filter_func;
+    usbredirparser_device_disconnect_ack device_disconnect_ack_func;
 };
 
 /* Allocate a usbredirparser, after this the app should set the callback app
