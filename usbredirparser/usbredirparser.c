@@ -1,6 +1,6 @@
 /* usbredirparser.c usb redirection protocol parser
 
-   Copyright 2010-2011 Red Hat, Inc.
+   Copyright 2010-2012 Red Hat, Inc.
 
    Red Hat Authors:
    Hans de Goede <hdegoede@redhat.com>
@@ -53,6 +53,7 @@ struct usbredirparser_priv {
     struct usbredirparser callb;
     int flags;
 
+    int have_peer_caps;
     uint32_t our_caps[USB_REDIR_CAPS_SIZE];
     uint32_t peer_caps[USB_REDIR_CAPS_SIZE];
 
@@ -149,6 +150,14 @@ void usbredirparser_caps_set_cap(uint32_t *caps, int cap)
     caps[cap / 32] |= 1 << (cap % 32);
 }
 
+int usbredirparser_have_peer_caps(struct usbredirparser *parser_pub)
+{
+    struct usbredirparser_priv *parser =
+        (struct usbredirparser_priv *)parser_pub;
+
+    return parser->have_peer_caps;
+}
+
 int usbredirparser_peer_has_cap(struct usbredirparser *parser_pub, int cap)
 {
     struct usbredirparser_priv *parser =
@@ -182,6 +191,11 @@ static void usbredirparser_handle_hello(struct usbredirparser_priv *parser,
     char buf[64];
     uint32_t *peer_caps = (uint32_t *)data;
 
+    if (parser->have_peer_caps) {
+        ERROR("Received second hello message, ignoring");
+        return;
+    }
+
     /* In case hello->version is not 0 terminated (which would be a protocol
        violation)_ */
     snprintf(buf, sizeof(buf), "%s", hello->version);
@@ -194,6 +208,7 @@ static void usbredirparser_handle_hello(struct usbredirparser_priv *parser,
     for (i = 0; i < data_len / sizeof(uint32_t); i++) {
         parser->peer_caps[i] = peer_caps[i];
     }
+    parser->have_peer_caps = 1;
     free(data);
 
     /* Added in 0.3.2, so no guarantee it is there */

@@ -1,6 +1,6 @@
 /* usbredirparser.h usb redirection protocol parser header
 
-   Copyright 2010-2011 Red Hat, Inc.
+   Copyright 2010-2012 Red Hat, Inc.
 
    Red Hat Authors:
    Hans de Goede <hdegoede@redhat.com>
@@ -203,6 +203,9 @@ void usbredirparser_destroy(struct usbredirparser *parser);
 /* See if our side has a certain cap (checks the caps passed into _init) */
 int usbredirparser_have_cap(struct usbredirparser *parser, int cap);
 
+/* Check if we've received the caps from the peer */
+int usbredirparser_have_peer_caps(struct usbredirparser *parser);
+
 /* Check if our peer has a certain capability. Note this function
    should not be used before the hello_func callback has been called. */
 int usbredirparser_peer_has_cap(struct usbredirparser *parser, int cap);
@@ -237,9 +240,6 @@ void usbredirparser_free_write_buffer(struct usbredirparser *parser,
 /* See the data packet callbacks documentation */
 void usbredirparser_free_packet_data(struct usbredirparser *parser,
     uint8_t *data);
-
-/* Call this to get the capabilities of its peer */
-uint32_t *usbredirparser_get_peer_caps(int *caps_len_ret);
 
 /* Functions to marshall and queue a packet for sending to its peer. Note:
    1) it will not be actually send until usbredirparser_do_write is called
