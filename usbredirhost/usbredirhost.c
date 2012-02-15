@@ -195,7 +195,7 @@ static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
     uint8_t ep);
 static void usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
     uint8_t ep);
-static void usbredirhost_cancel_interrupt_in_transfer(
+static void usbredirhost_cancel_interrupt_in_transfer_unlocked(
     struct usbredirhost *host, uint8_t ep);
 static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host);
 static void usbredirhost_free_transfer(struct usbredirtransfer *transfer);
@@ -824,26 +824,26 @@ static void usbredirhost_remove_and_free_transfer(
 /* Called from close and parser read callbacks */
 static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host)
 {
-    struct usbredirtransfer *transfer = &host->transfers_head;
+    struct usbredirtransfer *t;
     int i, wait;
 
+    LOCK(host);
     for (i = 0; i < MAX_ENDPOINTS; i++) {
         switch (host->endpoint[i].type) {
         case usb_redir_type_iso:
-            usbredirhost_cancel_iso_stream(host, I2EP(i));
+            usbredirhost_cancel_iso_stream_unlocked(host, I2EP(i));
             break;
         case usb_redir_type_interrupt:
             if (i & 0x10)
-                usbredirhost_cancel_interrupt_in_transfer(host, I2EP(i));
+                usbredirhost_cancel_interrupt_in_transfer_unlocked(host,
+                                                                   I2EP(i));
             break;
         }
     }
 
-    LOCK(host);
     wait = host->cancels_pending;
-    while (transfer->next) {
-        libusb_cancel_transfer(transfer->transfer);
-        transfer = transfer->next;
+    for (t = host->transfers_head.next; t; t = t->next) {
+        libusb_cancel_transfer(t->transfer);
         wait = 1;
     }
     UNLOCK(host);
@@ -852,30 +852,35 @@ static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host)
 }
 
 /* Called from close and parser read callbacks */
-static void usbredirhost_cancel_pending_urbs_on_ep(
-    struct usbredirhost *host, uint8_t ep)
+static void usbredirhost_cancel_pending_urbs_on_interface(
+    struct usbredirhost *host, int i)
 {
-    struct usbredirtransfer *transfer = &host->transfers_head;
+    struct usbredirtransfer *t;
+    const struct libusb_interface_descriptor *intf_desc;
 
-    switch (host->endpoint[EP2I(ep)].type) {
-    case usb_redir_type_iso:
-        usbredirhost_cancel_iso_stream(host, ep);
-        break;
-    case usb_redir_type_interrupt:
-        if (ep & LIBUSB_ENDPOINT_IN) {
-            usbredirhost_cancel_interrupt_in_transfer(host, ep);
+    LOCK(host);
+
+    intf_desc = &host->config->interface[i].altsetting[host->alt_setting[i]];
+    for (i = 0; i < intf_desc->bNumEndpoints; i++) {
+        uint8_t ep = intf_desc->endpoint[i].bEndpointAddress;
+
+        switch (host->endpoint[EP2I(ep)].type) {
+        case usb_redir_type_iso:
+            usbredirhost_cancel_iso_stream_unlocked(host, ep);
+            break;
+        case usb_redir_type_interrupt:
+            if (ep & LIBUSB_ENDPOINT_IN)
+                usbredirhost_cancel_interrupt_in_transfer_unlocked(host, ep);
             break;
         }
-        /* Fall through */
-    default:
-        LOCK(host);
-        while (transfer->next) {
-            if (transfer->transfer->endpoint == ep)
-                libusb_cancel_transfer(transfer->transfer);
-            transfer = transfer->next;
+
+        for (t = host->transfers_head.next; t; t = t->next) {
+            if (t->transfer->endpoint == ep)
+                libusb_cancel_transfer(t->transfer);
         }
-        UNLOCK(host);
     }
+
+    UNLOCK(host);
 }
 
 /* Only called from read callbacks */
@@ -1369,22 +1374,19 @@ static int usbredirhost_alloc_interrupt_in_transfer(struct usbredirhost *host,
     return usb_redir_success;
 }
 
-static void usbredirhost_cancel_interrupt_in_transfer(
+static void usbredirhost_cancel_interrupt_in_transfer_unlocked(
     struct usbredirhost *host, uint8_t ep)
 {
     struct usbredirtransfer *transfer;
 
-    LOCK(host);
     transfer = host->endpoint[EP2I(ep)].interrupt_in_transfer;
     if (!transfer)
-        goto unlock; /* Already stopped */
+        return; /* Already stopped */
 
     libusb_cancel_transfer(transfer->transfer);
     transfer->cancelled = 1;
     host->cancels_pending++;
     host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
-unlock:
-    UNLOCK(host);
 }
 
 /**************************************************************************/
@@ -1479,8 +1481,7 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
     struct usb_redir_set_alt_setting_header *set_alt_setting)
 {
     struct usbredirhost *host = priv;
-    int i, j, r;
-    const struct libusb_interface_descriptor *intf_desc;
+    int i, r;
     struct usb_redir_alt_setting_status_header status = {
         .status = usb_redir_success,
     };
@@ -1499,10 +1500,7 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
         goto exit_unknown_interface;
     }
 
-    intf_desc = &host->config->interface[i].altsetting[host->alt_setting[i]];
-    for (j = 0; j < intf_desc->bNumEndpoints; j++)
-        usbredirhost_cancel_pending_urbs_on_ep(host,
-                                    intf_desc->endpoint[j].bEndpointAddress);
+    usbredirhost_cancel_pending_urbs_on_interface(host, i);
 
     r = libusb_set_interface_alt_setting(host->handle,
                                          set_alt_setting->interface,
@@ -1658,7 +1656,9 @@ static void usbredirhost_stop_interrupt_receiving(void *priv, uint32_t id,
         goto exit;
     }
 
-    usbredirhost_cancel_interrupt_in_transfer(host, ep);
+    LOCK(host);
+    usbredirhost_cancel_interrupt_in_transfer_unlocked(host, ep);
+    UNLOCK(host);
 
 exit:
     usbredirhost_send_interrupt_recv_status(host, id, ep, status);
