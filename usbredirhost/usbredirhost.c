@@ -1,6 +1,6 @@
 /* usbredirhost.c usb network redirection usb host code.
 
-   Copyright 2010-2011 Red Hat, Inc.
+   Copyright 2010-2012 Red Hat, Inc.
 
    Red Hat Authors:
    Hans de Goede <hdegoede@redhat.com>
@@ -113,6 +113,8 @@ struct usbredirhost {
     int disconnected;
     int rejected;
     int cancels_pending;
+    int wait_disconnect;
+    int connect_pending;
     struct usbredirhost_ep endpoint[MAX_ENDPOINTS];
     uint8_t driver_detached[MAX_INTERFACES];
     uint8_t alt_setting[MAX_INTERFACES];
@@ -173,6 +175,7 @@ static void usbredirhost_cancel_data_packet(void *priv, uint32_t id);
 static void usbredirhost_filter_reject(void *priv);
 static void usbredirhost_filter_filter(void *priv,
     struct usbredirfilter_rule *rules, int rules_count);
+static void usbredirhost_device_disconnect_ack(void *priv);
 static void usbredirhost_control_packet(void *priv, uint32_t id,
     struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len);
@@ -196,6 +199,7 @@ static void usbredirhost_cancel_interrupt_in_transfer(
     struct usbredirhost *host, uint8_t ep);
 static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host);
 static void usbredirhost_free_transfer(struct usbredirtransfer *transfer);
+static void usbredirhost_clear_device(struct usbredirhost *host);
 
 static void usbredirhost_log(void *priv, int level, const char *msg)
 {
@@ -234,6 +238,9 @@ static void usbredirhost_handle_disconnect(struct usbredirhost *host)
     if (!host->disconnected) {
         INFO("device disconnected");
         usbredirparser_send_device_disconnect(host->parser);
+        if (usbredirparser_peer_has_cap(host->parser,
+                                        usb_redir_cap_device_disconnect_ack))
+            host->wait_disconnect = 1;
         host->disconnected = 1;
     }
     if (host->disconnect_lock) {
@@ -335,6 +342,17 @@ static void usbredirhost_send_device_connect(struct usbredirhost *host)
     struct usb_redir_device_connect_header device_connect;
     enum libusb_speed speed;
 
+    if (!host->disconnected) {
+        ERROR("internal error sending device_connect but already connected");
+        return;
+    }
+
+    if (!usbredirparser_have_peer_caps(host->parser) ||
+            host->wait_disconnect) {
+        host->connect_pending = 1;
+        return;
+    }
+
     speed = libusb_get_device_speed(host->dev);
     switch (speed) {
     case LIBUSB_SPEED_LOW:
@@ -355,7 +373,12 @@ static void usbredirhost_send_device_connect(struct usbredirhost *host)
     device_connect.product_id = host->desc.idProduct;
     device_connect.device_version_bcd = host->desc.bcdDevice;
 
+    usbredirhost_send_interface_n_ep_info(host);
     usbredirparser_send_device_connect(host->parser, &device_connect);
+    host->connect_pending = 0;
+    host->disconnected = 0; /* The guest know may use the device */
+
+    FLUSH(host);
 }
 
 /* Called from open/close and parser read callbacks */
@@ -500,9 +523,7 @@ static int usbredirhost_release(struct usbredirhost *host, int attach_drivers)
                       n, host->active_config, r);
                 ret = usb_redir_ioerror;
             }
-            if (r == 0) {
-                host->driver_detached[i] = 0;
-            }
+            host->driver_detached[i] = 0;
         }
     }
 
@@ -539,7 +560,7 @@ struct usbredirhost *usbredirhost_open_full(
     void *func_priv, const char *version, int verbose, int flags)
 {
     struct usbredirhost *host;
-    int r, parser_flags = usbredirparser_fl_usb_host;
+    int parser_flags = usbredirparser_fl_usb_host;
     uint32_t caps[USB_REDIR_CAPS_SIZE] = { 0, };
 
     host = calloc(1, sizeof(*host));
@@ -551,14 +572,13 @@ struct usbredirhost *usbredirhost_open_full(
     }
 
     host->ctx = usb_ctx;
-    host->dev = libusb_get_device(usb_dev_handle);
-    host->handle = usb_dev_handle;
     host->log_func = log_func;
     host->read_func = read_guest_data_func;
     host->write_func = write_guest_data_func;
     host->flush_writes_func = flush_writes_func;
     host->func_priv = func_priv;
     host->verbose = verbose;
+    host->disconnected = 1; /* No device is connected initially */
     host->parser = usbredirparser_create();
     if (!host->parser) {
         log_func(func_priv, usbredirparser_error,
@@ -587,6 +607,8 @@ struct usbredirhost *usbredirhost_open_full(
     host->parser->cancel_data_packet_func = usbredirhost_cancel_data_packet;
     host->parser->filter_reject_func = usbredirhost_filter_reject;
     host->parser->filter_filter_func = usbredirhost_filter_filter;
+    host->parser->device_disconnect_ack_func =
+        usbredirhost_device_disconnect_ack;
     host->parser->control_packet_func = usbredirhost_control_packet;
     host->parser->bulk_packet_func = usbredirhost_bulk_packet;
     host->parser->iso_packet_func = usbredirhost_iso_packet;
@@ -607,27 +629,14 @@ struct usbredirhost *usbredirhost_open_full(
 
     usbredirparser_caps_set_cap(caps, usb_redir_cap_connect_device_version);
     usbredirparser_caps_set_cap(caps, usb_redir_cap_filter);
+    usbredirparser_caps_set_cap(caps, usb_redir_cap_device_disconnect_ack);
 
     usbredirparser_init(host->parser, version, caps, USB_REDIR_CAPS_SIZE,
                         parser_flags);
 
     libusb_set_debug(host->ctx, host->verbose);
 
-    r = libusb_get_configuration(host->handle, &host->active_config);
-    if (r < 0) {
-        ERROR("could not get active configuration: %d", r);
-        usbredirhost_close(host);
-        return NULL;
-    }
-
-    r = libusb_get_device_descriptor(host->dev, &host->desc);
-    if (r < 0) {
-        ERROR("could not get device descriptor: %d", r);
-        usbredirhost_close(host);
-        return NULL;
-    }
-
-    if (usbredirhost_claim(host, 1) != usb_redir_success) {
+    if (usbredirhost_set_device(host, usb_dev_handle) != usb_redir_success) {
         usbredirhost_close(host);
         return NULL;
     }
@@ -639,33 +648,8 @@ struct usbredirhost *usbredirhost_open_full(
 
 void usbredirhost_close(struct usbredirhost *host)
 {
-    int wait;
-    struct usbredirtransfer *t;
-    struct timeval tv;
+    usbredirhost_clear_device(host);
 
-    if (!host) {
-        return;
-    }
-
-    wait = usbredirhost_cancel_pending_urbs(host);
-    while (wait) {
-        memset(&tv, 0, sizeof(tv));
-        tv.tv_usec = 2500;
-        libusb_handle_events_timeout(host->ctx, &tv);
-        LOCK(host);
-        wait = host->cancels_pending || host->transfers_head.next;
-        UNLOCK(host);
-    }
-
-    if (host->claimed && !host->disconnected) {
-        usbredirhost_release(host, 1);
-    }
-    if (host->config) {
-        libusb_free_config_descriptor(host->config);
-    }
-    if (host->handle) {
-        libusb_close(host->handle);
-    }
     if (host->lock) {
         host->parser->free_lock_func(host->lock);
     }
@@ -677,6 +661,80 @@ void usbredirhost_close(struct usbredirhost *host)
     }
     free(host->filter_rules);
     free(host);
+}
+
+int usbredirhost_set_device(struct usbredirhost *host,
+                             libusb_device_handle *usb_dev_handle)
+{
+    int r, status;
+
+    usbredirhost_clear_device(host);
+
+    if (!usb_dev_handle)
+        return;
+
+    host->dev = libusb_get_device(usb_dev_handle);
+    host->handle = usb_dev_handle;
+
+    r = libusb_get_configuration(host->handle, &host->active_config);
+    if (r < 0) {
+        ERROR("could not get active configuration: %d", r);
+        usbredirhost_clear_device(host);
+        return libusb_status_or_error_to_redir_status(host, r);
+    }
+
+    r = libusb_get_device_descriptor(host->dev, &host->desc);
+    if (r < 0) {
+        ERROR("could not get device descriptor: %d", r);
+        usbredirhost_clear_device(host);
+        return libusb_status_or_error_to_redir_status(host, r);
+    }
+
+    status = usbredirhost_claim(host, 1);
+    if (status != usb_redir_success) {
+        usbredirhost_clear_device(host);
+        return status;
+    }
+
+    usbredirhost_send_device_connect(host);
+
+    return usb_redir_success;
+}
+
+static void usbredirhost_clear_device(struct usbredirhost *host)
+{
+    int wait;
+    struct timeval tv;
+
+    if (!host->dev)
+        return;
+
+    wait = usbredirhost_cancel_pending_urbs(host);
+    while (wait) {
+        memset(&tv, 0, sizeof(tv));
+        tv.tv_usec = 2500;
+        libusb_handle_events_timeout(host->ctx, &tv);
+        LOCK(host);
+        wait = host->cancels_pending || host->transfers_head.next;
+        UNLOCK(host);
+    }
+
+    usbredirhost_release(host, 1);
+
+    if (host->config) {
+        libusb_free_config_descriptor(host->config);
+        host->config = NULL;
+    }
+    if (host->handle) {
+        libusb_close(host->handle);
+        host->handle = NULL;
+    }
+
+    host->connect_pending = 0;
+    host->dev = NULL;
+
+    usbredirhost_handle_disconnect(host);
+    FLUSH(host);
 }
 
 int usbredirhost_read_guest_data(struct usbredirhost *host)
@@ -1335,9 +1393,8 @@ static void usbredirhost_hello(void *priv, struct usb_redir_hello_header *h)
 {
     struct usbredirhost *host = priv;
 
-    usbredirhost_send_interface_n_ep_info(host);
-    usbredirhost_send_device_connect(host);
-    FLUSH(host);
+    if (host->connect_pending)
+        usbredirhost_send_device_connect(host);
 }
 
 static void usbredirhost_reset(void *priv)
@@ -1409,7 +1466,10 @@ static void usbredirhost_get_configuration(void *priv, uint32_t id)
     struct usbredirhost *host = priv;
     struct usb_redir_configuration_status_header status;
 
-    status.status = usb_redir_success;
+    if (host->disconnected)
+        status.status = usb_redir_ioerror;
+    else
+        status.status = usb_redir_success;
     status.configuration = host->active_config;
     usbredirparser_send_configuration_status(host->parser, id, &status);
     FLUSH(host);
@@ -1425,17 +1485,18 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
         .status = usb_redir_success,
     };
 
+    if (host->disconnected) {
+        status.status = usb_redir_ioerror;
+        status.alt = -1;
+        goto exit_unknown_interface;
+    }
+
     i = usbredirhost_bInterfaceNumber_to_index(host,
                                                set_alt_setting->interface);
     if (i == -1) {
         status.status = usb_redir_inval;
         status.alt = -1;
         goto exit_unknown_interface;
-    }
-
-    if (host->disconnected) {
-        status.status = usb_redir_ioerror;
-        goto exit;
     }
 
     intf_desc = &host->config->interface[i].altsetting[host->alt_setting[i]];
@@ -1471,6 +1532,12 @@ static void usbredirhost_get_alt_setting(void *priv, uint32_t id,
     struct usb_redir_alt_setting_status_header status;
     int i;
 
+    if (host->disconnected) {
+        status.status = usb_redir_ioerror;
+        status.alt = -1;
+        goto exit;
+    }
+
     i = usbredirhost_bInterfaceNumber_to_index(host,
                                                get_alt_setting->interface);
     if (i >= 0) {
@@ -1481,6 +1548,7 @@ static void usbredirhost_get_alt_setting(void *priv, uint32_t id,
         status.alt = -1;
     }
 
+exit:
     status.interface = get_alt_setting->interface;
     usbredirparser_send_alt_setting_status(host->parser, id, &status);
     FLUSH(host);
@@ -1532,9 +1600,17 @@ static void usbredirhost_stop_iso_stream(void *priv, uint32_t id,
 {
     struct usbredirhost *host = priv;
     uint8_t ep = stop_iso_stream->endpoint;
+    uint8_t status = usb_redir_success;
+
+    if (host->disconnected) {
+        status = usb_redir_ioerror;
+        goto exit;
+    }
 
     usbredirhost_cancel_iso_stream(host, ep);
-    usbredirhost_send_iso_status(host, id, ep, usb_redir_success);
+
+exit:
+    usbredirhost_send_iso_status(host, id, ep, status);
     FLUSH(host);
 }
 
@@ -1575,9 +1651,17 @@ static void usbredirhost_stop_interrupt_receiving(void *priv, uint32_t id,
 {
     struct usbredirhost *host = priv;
     uint8_t ep = stop_interrupt_receiving->endpoint;
+    uint8_t status = usb_redir_success;
+
+    if (host->disconnected) {
+        status = usb_redir_ioerror;
+        goto exit;
+    }
 
     usbredirhost_cancel_interrupt_in_transfer(host, ep);
-    usbredirhost_send_interrupt_recv_status(host, id, ep, usb_redir_success);
+
+exit:
+    usbredirhost_send_interrupt_recv_status(host, id, ep, status);
     FLUSH(host);
 }
 
@@ -1597,6 +1681,9 @@ static void usbredirhost_filter_reject(void *priv)
 {
     struct usbredirhost *host = priv;
 
+    if (host->disconnected)
+        return;
+
     INFO("device rejected");
     host->rejected = 1;
 }
@@ -1609,6 +1696,21 @@ static void usbredirhost_filter_filter(void *priv,
     free(host->filter_rules);
     host->filter_rules = rules;
     host->filter_rules_count = rules_count;
+}
+
+static void usbredirhost_device_disconnect_ack(void *priv)
+{
+    struct usbredirhost *host = priv;
+
+    if (!host->wait_disconnect) {
+        ERROR("Received disconnect ack without sending a disconnect");
+        return;
+    }
+
+    host->wait_disconnect = 0;
+
+    if (host->connect_pending)
+        usbredirhost_send_device_connect(host);
 }
 
 /**************************************************************************/

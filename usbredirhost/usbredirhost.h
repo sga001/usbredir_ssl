@@ -1,6 +1,6 @@
 /* usbredirhost.c usb network redirection usb host code header
 
-   Copyright 2010-2011 Red Hat, Inc.
+   Copyright 2010-2012 Red Hat, Inc.
 
    Red Hat Authors:
    Hans de Goede <hdegoede@redhat.com>
@@ -29,8 +29,14 @@ struct usbredirhost;
 
 typedef void (*usbredirhost_flush_writes)(void *priv);
 
-/* This function *takes ownership of* the passed in libusb_device_handle
-   and sends the initial usb_redir_hello packet to the usb-guest.
+/* This function creates an usbredirhost instance, including its embedded
+   libusbredirparser instance and sends the initial usb_redir_hello packet to
+   the usb-guest.
+
+   If usb_dev_handle is not NULL, usbredirhost_set_device will be called
+   with the passed in usb_dev_handle after creating the instance. If
+   usbredirhost_set_device fails, the instance will be destroyed and NULL
+   will be returned.
 
    log_func is called by the usbredirhost to log various messages
 
@@ -38,9 +44,7 @@ typedef void (*usbredirhost_flush_writes)(void *priv);
    usbredirhost to read/write data from/to the usb-guest.
 
    This function returns a pointer to the created usbredirhost object on
-   success, or NULL on failure. Note that the passed in libusb_device_handle
-   is closed on failure.
-
+   success, or NULL on failure.
    Note:
    1) Both the usbredirtransport_log and the usbredirtransport_write
       callbacks may get called before this function completes.
@@ -77,14 +81,34 @@ struct usbredirhost *usbredirhost_open_full(
     usbredirparser_free_lock free_lock_func,
     void *func_priv, const char *version, int verbose, int flags);
 
-/* Close the usbredirhost, returning control of the device back to any
-   host kernel drivers for it, freeing any allocated memory, etc.
-
-   Note this function calls libusb_handle_events to "reap" cancelled
-   urbs before closing the libusb device handle. This means that if you
-   are using the same libusb context for other purposes your transfer complete
-   callbacks may get called! */
+/* Closes (destroys) the usbredirhost, if the usbredirhost currently
+   is redirecting a device this function will first call
+   usbredirhost_set_device(host, NULL); See the notes for that function!
+*/
 void usbredirhost_close(struct usbredirhost *host);
+
+/* Call this function with a valid libusb_device_handle to send the initial
+   device info (interface_info, ep_info and device_connect packets) and make
+   the device available to the usbredir-guest connected to the usbredir-host.
+
+   Note:
+   1) This function *takes ownership of* the passed in libusb_device_handle.
+   2) The passed in libusb_device_handle is closed on failure.
+   3) If the host already has a device that will get disconnected and closed.
+
+   Call this function with NULL as usb_dev_handle to disconnect a redirected
+   device from the usbredir-guest and make the device available to the OS
+   on which the usbredir-host is running again.
+
+   Note when disconnecting a redirected device, this function calls
+   libusb_handle_events to "reap" cancelled urbs before closing the libusb
+   device handle. This means that if you are using the same libusb context
+   for other purposes your transfer complete callbacks may get called!
+
+   This function returns a usbredirproto.h status code (ie usb_redir_success)
+*/
+int usbredirhost_set_device(struct usbredirhost *host,
+                            libusb_device_handle *usb_dev_handle);
 
 /* Call this whenever there is data ready for the usbredirhost to read from
    the usb-guest

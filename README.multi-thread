@@ -60,6 +60,7 @@ usbredirhost:
  usbredirhost_open_full
  usbredirhost_close
  usbredirhost_read_guest_data
+ usbredirhost_set_device
 
 -Multiple callers allowed:
  usbredirhost_has_data_to_write
@@ -68,6 +69,6 @@ usbredirhost:
  libusb_handle_events (2)
 
 (1) These only return the actual peer caps after the initial hello message
-    has been read.
+    has been read, as indicated by the hello_func callback.
 
 (2) libusb is thread safe itself, thus allowing multiple callers.
