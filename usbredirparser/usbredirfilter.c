@@ -241,7 +241,7 @@ void usbredirfilter_print(struct usbredirfilter_rule *rules, int rules_count,
             sprintf(version, "%2d.%02d",
                     ((rules[i].device_version_bcd & 0xf000) >> 12) * 10 +
                     ((rules[i].device_version_bcd & 0x0f00) >>  8),
-                    ((rules[i].device_version_bcd & 0x000f) >>  4) * 10 +
+                    ((rules[i].device_version_bcd & 0x00f0) >>  4) * 10 +
                     ((rules[i].device_version_bcd & 0x000f)));
         else
             strcpy(version, "  ANY");
