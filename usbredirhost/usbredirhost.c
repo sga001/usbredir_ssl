@@ -382,11 +382,32 @@ static void usbredirhost_send_device_connect(struct usbredirhost *host)
 }
 
 /* Called from open/close and parser read callbacks */
-static void usbredirhost_parse_config(struct usbredirhost *host)
+static void usbredirhost_parse_interface(struct usbredirhost *host, int i)
 {
-    int i, j;
+    int j;
     const struct libusb_interface_descriptor *intf_desc;
     uint8_t ep_address;
+
+    intf_desc =
+        &host->config->interface[i].altsetting[host->alt_setting[i]];
+
+    for (j = 0; j < intf_desc->bNumEndpoints; j++) {
+        ep_address = intf_desc->endpoint[j].bEndpointAddress;
+        /* FIXlibusb libusb_get_max_iso_packet_size always returns 0
+           independent of alt setting?? */
+        host->endpoint[EP2I(ep_address)].max_packetsize =
+            usbredirhost_get_max_packetsize(
+                intf_desc->endpoint[j].wMaxPacketSize);
+            /* libusb_get_max_iso_packet_size(host->dev, ep_address); */
+        host->endpoint[EP2I(ep_address)].type =
+            intf_desc->endpoint[j].bmAttributes &
+                LIBUSB_TRANSFER_TYPE_MASK;
+    }
+}
+
+static void usbredirhost_parse_config(struct usbredirhost *host)
+{
+    int i;
 
     for (i = 0; i < MAX_ENDPOINTS; i++) {
         if ((i & 0x0f) == 0) {
@@ -397,21 +418,7 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
     }
 
     for (i = 0; i < host->config->bNumInterfaces; i++) {
-        intf_desc =
-            &host->config->interface[i].altsetting[host->alt_setting[i]];
-
-        for (j = 0; j < intf_desc->bNumEndpoints; j++) {
-            ep_address = intf_desc->endpoint[j].bEndpointAddress;
-            /* FIXlibusb libusb_get_max_iso_packet_size always returns 0
-               independent of alt setting?? */
-            host->endpoint[EP2I(ep_address)].max_packetsize =
-                usbredirhost_get_max_packetsize(
-                    intf_desc->endpoint[j].wMaxPacketSize);
-                /* libusb_get_max_iso_packet_size(host->dev, ep_address); */
-            host->endpoint[EP2I(ep_address)].type =
-                intf_desc->endpoint[j].bmAttributes &
-                    LIBUSB_TRANSFER_TYPE_MASK;
-        }
+        usbredirhost_parse_interface(host, i);
     }
 }
 
@@ -1512,7 +1519,7 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
         goto exit;
     }
     host->alt_setting[i] = set_alt_setting->alt;
-    usbredirhost_parse_config(host);
+    usbredirhost_parse_interface(host, i);
     usbredirhost_send_interface_n_ep_info(host);
 
 exit:
