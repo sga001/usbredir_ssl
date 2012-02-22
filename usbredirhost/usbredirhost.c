@@ -81,6 +81,8 @@ struct usbredirtransfer {
 
 struct usbredirhost_ep {
     uint8_t type;
+    uint8_t interval;
+    uint8_t interface;
     uint8_t iso_started;
     uint8_t iso_pkts_per_transfer;
     uint8_t iso_transfer_count;
@@ -302,17 +304,10 @@ static int usbredirhost_get_max_packetsize(uint16_t wMaxPacketSize)
 /* Called from open/close and parser read callbacks */
 static void usbredirhost_send_interface_n_ep_info(struct usbredirhost *host)
 {
-    int i, j;
+    int i;
     const struct libusb_interface_descriptor *intf_desc;
     struct usb_redir_ep_info_header ep_info;
     struct usb_redir_interface_info_header interface_info;
-    uint8_t ep_address;
-
-    for (i = 0; i < MAX_ENDPOINTS; i++) {
-        ep_info.type[i] = host->endpoint[i].type;
-        ep_info.interface[i] = 0;
-        ep_info.interval[i] = 0;
-    }
 
     interface_info.interface_count = host->config->bNumInterfaces;
     for (i = 0; i < host->config->bNumInterfaces; i++) {
@@ -323,16 +318,14 @@ static void usbredirhost_send_interface_n_ep_info(struct usbredirhost *host)
         interface_info.interface_class[i] = intf_desc->bInterfaceClass;
         interface_info.interface_subclass[i] = intf_desc->bInterfaceSubClass;
         interface_info.interface_protocol[i] = intf_desc->bInterfaceProtocol;
-
-        for (j = 0; j < intf_desc->bNumEndpoints; j++) {
-            ep_address = intf_desc->endpoint[j].bEndpointAddress;
-            ep_info.interval[EP2I(ep_address)] =
-                intf_desc->endpoint[j].bInterval;
-            ep_info.interface[EP2I(ep_address)] =
-                intf_desc->bInterfaceNumber;
-        }
     }
     usbredirparser_send_interface_info(host->parser, &interface_info);
+
+    for (i = 0; i < MAX_ENDPOINTS; i++) {
+        ep_info.type[i] = host->endpoint[i].type;
+        ep_info.interval[i] = host->endpoint[i].interval;
+        ep_info.interface[i] = host->endpoint[i].interface;
+    }
     usbredirparser_send_ep_info(host->parser, &ep_info);
 }
 
@@ -402,6 +395,10 @@ static void usbredirhost_parse_interface(struct usbredirhost *host, int i)
         host->endpoint[EP2I(ep_address)].type =
             intf_desc->endpoint[j].bmAttributes &
                 LIBUSB_TRANSFER_TYPE_MASK;
+        host->endpoint[EP2I(ep_address)].interval =
+            intf_desc->endpoint[j].bInterval;
+        host->endpoint[EP2I(ep_address)].interface =
+            intf_desc->bInterfaceNumber;
     }
 }
 
@@ -415,6 +412,8 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
         } else {
             host->endpoint[i].type = usb_redir_type_invalid;
         }
+        host->endpoint[i].interval = 0;
+        host->endpoint[i].interface = 0;
     }
 
     for (i = 0; i < host->config->bNumInterfaces; i++) {
@@ -1488,7 +1487,7 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
     struct usb_redir_set_alt_setting_header *set_alt_setting)
 {
     struct usbredirhost *host = priv;
-    int i, r;
+    int i, j, r;
     struct usb_redir_alt_setting_status_header status = {
         .status = usb_redir_success,
     };
@@ -1518,6 +1517,22 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
         status.status = libusb_status_or_error_to_redir_status(host, r);
         goto exit;
     }
+
+    /* The new alt setting may have lost endpoints compared to the old! ->
+       Clear settings for all endpoints which used to be part of the intf. */
+    for (j = 0; j < MAX_ENDPOINTS; j++) {
+        if (host->endpoint[j].interface != set_alt_setting->interface)
+            continue;
+
+        if ((i & 0x0f) == 0) {
+            host->endpoint[j].type = usb_redir_type_control;
+        } else {
+            host->endpoint[j].type = usb_redir_type_invalid;
+        }
+        host->endpoint[j].interval = 0;
+        host->endpoint[j].interface = 0;
+    }
+
     host->alt_setting[i] = set_alt_setting->alt;
     usbredirhost_parse_interface(host, i);
     usbredirhost_send_interface_n_ep_info(host);
