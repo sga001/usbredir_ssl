@@ -2195,13 +2195,13 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
 /**************************************************************************/
 
 void usbredirhost_get_guest_filter(struct usbredirhost *host,
-    struct usbredirfilter_rule **rules_ret, int *rules_count_ret)
+    const struct usbredirfilter_rule **rules_ret, int *rules_count_ret)
 {
     *rules_ret = host->filter_rules;
     *rules_count_ret = host->filter_rules_count;
 }
 
-int usbredirhost_check_device_filter(struct usbredirfilter_rule *rules,
+int usbredirhost_check_device_filter(const struct usbredirfilter_rule *rules,
     int rules_count, libusb_device *dev, int flags)
 {
     int i, r, num_interfaces;

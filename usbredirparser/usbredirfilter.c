@@ -94,7 +94,7 @@ leave:
     return ret;
 }
 
-char *usbredirfilter_rules_to_string(struct usbredirfilter_rule *rules,
+char *usbredirfilter_rules_to_string(const struct usbredirfilter_rule *rules,
     int rules_count, const char *token_sep, const char *rule_sep)
 {
     int i;
@@ -136,7 +136,7 @@ char *usbredirfilter_rules_to_string(struct usbredirfilter_rule *rules,
     return str;
 }
 
-static int usbredirfilter_check1(struct usbredirfilter_rule *rules,
+static int usbredirfilter_check1(const struct usbredirfilter_rule *rules,
     int rules_count, uint8_t device_class, uint16_t vendor_id,
     uint16_t product_id, uint16_t device_version_bcd, int default_allow)
 {
@@ -159,7 +159,8 @@ static int usbredirfilter_check1(struct usbredirfilter_rule *rules,
     return default_allow ? 0 : -EPERM;
 }
 
-int usbredirfilter_check(struct usbredirfilter_rule *rules, int rules_count,
+int usbredirfilter_check(
+    const struct usbredirfilter_rule *rules, int rules_count,
     uint8_t device_class, uint8_t device_subclass, uint8_t device_protocol,
     uint8_t *interface_class, uint8_t *interface_subclass,
     uint8_t *interface_protocol, int interface_count,
@@ -197,7 +198,8 @@ int usbredirfilter_check(struct usbredirfilter_rule *rules, int rules_count,
     return 0;
 }
 
-int usbredirfilter_verify(struct usbredirfilter_rule *rules, int rules_count)
+int usbredirfilter_verify(
+    const struct usbredirfilter_rule *rules, int rules_count)
 {
     int i;
 
@@ -215,8 +217,8 @@ int usbredirfilter_verify(struct usbredirfilter_rule *rules, int rules_count)
     return 0;
 }
 
-void usbredirfilter_print(struct usbredirfilter_rule *rules, int rules_count,
-                          FILE *out)
+void usbredirfilter_print(
+    const struct usbredirfilter_rule *rules, int rules_count, FILE *out)
 {
     int i;
     char device_class[16], vendor[16], product[16], version[16];

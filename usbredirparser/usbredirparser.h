@@ -305,7 +305,7 @@ void usbredirparser_send_cancel_data_packet(struct usbredirparser *parser,
     uint32_t id);
 void usbredirparser_send_filter_reject(struct usbredirparser *parser);
 void usbredirparser_send_filter_filter(struct usbredirparser *parser,
-    struct usbredirfilter_rule *rules, int rules_count);
+    const struct usbredirfilter_rule *rules, int rules_count);
 /* Data packets: */
 void usbredirparser_send_control_packet(struct usbredirparser *parser,
     uint32_t id,

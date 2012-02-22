@@ -1062,7 +1062,7 @@ void usbredirparser_send_filter_reject(struct usbredirparser *parser)
 }
 
 void usbredirparser_send_filter_filter(struct usbredirparser *parser_pub,
-    struct usbredirfilter_rule *rules, int rules_count)
+    const struct usbredirfilter_rule *rules, int rules_count)
 {
     struct usbredirparser_priv *parser =
         (struct usbredirparser_priv *)parser_pub;

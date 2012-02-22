@@ -145,7 +145,7 @@ void usbredirhost_free_write_buffer(struct usbredirhost *host, uint8_t *data);
 /* Get the *usbredir-guest's* filter, if any. If there is no filter,
    rules is set to NULL and rules_count to 0. */
 void usbredirhost_get_guest_filter(struct usbredirhost *host,
-    struct usbredirfilter_rule **rules_ret, int *rules_count_ret);
+    const struct usbredirfilter_rule **rules_ret, int *rules_count_ret);
 
 /* Get device and config descriptors from the USB device dev, and call
    usbredirfilter_check with the passed in filter rules and the needed info
@@ -154,7 +154,7 @@ void usbredirhost_get_guest_filter(struct usbredirhost *host,
 
    Return value: -EIO or -ENOMEM when getting the descriptors fails, otherwise
        it returns the return value of the usbredirfilter_check call. */
-int usbredirhost_check_device_filter(struct usbredirfilter_rule *rules,
+int usbredirhost_check_device_filter(const struct usbredirfilter_rule *rules,
     int rules_count, libusb_device *dev, int flags);
 
 #endif

@@ -65,7 +65,7 @@ int usbredirfilter_string_to_rules(
    Return value: The string on sucess, or NULL if the rules fail verification,
       or when allocating the string fails.
 */
-char *usbredirfilter_rules_to_string(struct usbredirfilter_rule *rules,
+char *usbredirfilter_rules_to_string(const struct usbredirfilter_rule *rules,
     int rules_count, const char *token_sep, const char *rule_sep);
 
 /* Check if redirection of a device with the passed in device info is allowed
@@ -105,7 +105,8 @@ enum {
     usbredirfilter_fl_default_allow = 0x01,
     usbredirfilter_fl_dont_skip_non_boot_hid = 0x02,
 };
-int usbredirfilter_check(struct usbredirfilter_rule *rules, int rules_count,
+int usbredirfilter_check(
+    const struct usbredirfilter_rule *rules, int rules_count,
     uint8_t device_class, uint8_t device_subclass, uint8_t device_protocol,
     uint8_t *interface_class, uint8_t *interface_subclass,
     uint8_t *interface_protocol, int interface_count,
@@ -115,9 +116,10 @@ int usbredirfilter_check(struct usbredirfilter_rule *rules, int rules_count,
 /* Sanity check the passed in rules
 
    Return value: 0 on success, -EINVAL when some values are out of bound. */
-int usbredirfilter_verify(struct usbredirfilter_rule *rules, int rules_count);
+int usbredirfilter_verify(
+    const struct usbredirfilter_rule *rules, int rules_count);
 
 /* Print the passed in rules to FILE out in human readable format */
-void usbredirfilter_print(struct usbredirfilter_rule *rules, int rules_count,
-                          FILE *out);
+void usbredirfilter_print(
+    const struct usbredirfilter_rule *rules, int rules_count, FILE *out);
 #endif
