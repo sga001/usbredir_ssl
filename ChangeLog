@@ -1,3 +1,19 @@
+usbredir-0.4 22 February 2012
+-----------------------------
+-Add usb_redir_filter_reject and usb_redir_filter_filter packets and
+ an usb_redir_cap_filter capability flag
+-Add an usb_redir_device_disconnect_ack packet and
+ an usb_redir_cap_device_disconnect_ack capability flag
+
+-usbredirparser:
+ -Add an usbredirparser_have_peer_caps function
+
+-usbredirhost:
+ -Allow re-using a host instance with multiple devices, see the documentation
+  for the new usbredirhost_set_device() function in usbredirhost.h
+ -Quite a few bugfixes
+
+
 usbredir-0.3.3 12 January 2012
 ------------------------------
 -usbredirparser:

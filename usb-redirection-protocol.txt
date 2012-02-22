@@ -1,4 +1,4 @@
-USB Network Redirection protocol description version 0.3 (14 July 2011)
+USB Network Redirection protocol description version 0.4 (22 February 2012)
 
 Revisions
 ---------
@@ -42,6 +42,9 @@ Version 0.3, released 14 July 2011
 -Drop usb_redir_reset_status, instead if reconnecting to the device fails
  after reset the usb-host will send a usb_redir_device_disconnect packet
 
+Version 0.3.1, released 18 August 2011
+- No protocol changes
+
 Version 0.3.2, released  3 January 2012
 -The usb_redir_device_connect_header has been extended with a
  device_version_bcd field. This is only send / received if both sides
@@ -50,13 +53,13 @@ Version 0.3.2, released  3 January 2012
 Version 0.3.3, released 12 January 2012
 - No protocol changes
 
-Version 0.3.4, released FIXME 2012
+Version 0.4,   released 22 February 2012
 - Add usb_redir_filter_reject and usb_redir_filter_filter packets and
   an usb_redir_cap_filter capability flag
 - Add an usb_redir_device_disconnect_ack packet and
   an usb_redir_cap_device_disconnect_ack capability flag
 
-USB redirerection protocol version 0.3
+USB redirerection protocol version 0.4
 --------------------------------------
 
 The protocol described in this document is meant for tunneling usb transfers

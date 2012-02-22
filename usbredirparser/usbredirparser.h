@@ -171,7 +171,7 @@ struct usbredirparser {
     usbredirparser_free_lock free_lock_func;
     /* usbredir 0.3.2 new control packet complete callbacks */
     usbredirparser_hello hello_func;
-    /* usbredir 0.3.4 new control packet complete callbacks */
+    /* usbredir 0.4 new control packet complete callbacks */
     usbredirparser_filter_reject filter_reject_func;
     usbredirparser_filter_filter filter_filter_func;
     usbredirparser_device_disconnect_ack device_disconnect_ack_func;
