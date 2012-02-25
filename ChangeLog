@@ -1,3 +1,8 @@
+usbredir-0.4.1 25 February 2012
+-------------------------------
+-Brown paper bag release, fix a return without value in a non void function
+ which completely breaks usbredir in some cases
+
 usbredir-0.4 22 February 2012
 -----------------------------
 -Add usb_redir_filter_reject and usb_redir_filter_filter packets and
