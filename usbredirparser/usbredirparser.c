@@ -644,7 +644,7 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser_pub)
         struct usbredirfilter_rule *rules;
         int r, count;
 
-        r = usbredirfilter_string_to_rules(parser->data, ",", "|",
+        r = usbredirfilter_string_to_rules((char *)parser->data, ",", "|",
                                            &rules, &count);
         if (r) {
             ERROR("parsing filter (5d), ignoring filter message", r);
@@ -1077,7 +1077,7 @@ void usbredirparser_send_filter_filter(struct usbredirparser *parser_pub,
         return;
     }
     usbredirparser_queue(parser_pub, usb_redir_filter_filter, 0, NULL,
-                         str, strlen(str) + 1);
+                         (uint8_t *)str, strlen(str) + 1);
     free(str);
 }
 

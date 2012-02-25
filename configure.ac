@@ -26,6 +26,21 @@ AC_PROG_LN_S
 LT_INIT
 dnl AC_DEFINE(_GNU_SOURCE, [1], [Enable GNU extensions])
 
+# Set some sane default CFLAGS, avoid having to do another release like 0.4.1
+if test "$ac_test_CFLAGS" != set; then
+  DEFAULT_CFLAGS="-Wall -Werror -Wp,-D_FORTIFY_SOURCE=2 -fstack-protector --param=ssp-buffer-size=4"
+  for F in $DEFAULT_CFLAGS; do
+    AC_MSG_CHECKING([whether $CC supports $F])
+    save_CFLAGS="$CFLAGS"
+    CFLAGS="$CFLAGS $F"
+    AC_COMPILE_IFELSE([AC_LANG_SOURCE([ ])], [cc_flag=yes], [cc_flag=no])
+    if test "x$cc_flag" != "xyes"; then
+      CFLAGS="$save_CFLAGS"
+    fi
+    AC_MSG_RESULT([$cc_flag])
+  done
+fi
+
 PKG_PROG_PKG_CONFIG
 PKG_CHECK_MODULES(LIBUSB, [libusb-1.0 >= 1.0.9])
 

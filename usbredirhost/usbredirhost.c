@@ -677,7 +677,7 @@ int usbredirhost_set_device(struct usbredirhost *host,
     usbredirhost_clear_device(host);
 
     if (!usb_dev_handle)
-        return;
+        return usb_redir_success;
 
     host->dev = libusb_get_device(usb_dev_handle);
     host->handle = usb_dev_handle;
@@ -1429,7 +1429,7 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
     struct usb_redir_set_configuration_header *set_config)
 {
     struct usbredirhost *host = priv;
-    int i, r;
+    int r;
     struct usb_redir_configuration_status_header status = {
         .status = usb_redir_success,
     };
