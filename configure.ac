@@ -26,6 +26,19 @@ AC_PROG_LN_S
 LT_INIT
 dnl AC_DEFINE(_GNU_SOURCE, [1], [Enable GNU extensions])
 
+AC_MSG_CHECKING([for native Win32])
+echo "host is $host"
+case "$host" in
+     *mingw*|*cygwin*)
+        os_win32=yes
+        ;;
+     *)
+        os_win32=no
+        ;;
+esac
+AC_MSG_RESULT([$os_win32])
+AM_CONDITIONAL([OS_WIN32],[test "$os_win32" = "yes"])
+
 # Set some sane default CFLAGS, avoid having to do another release like 0.4.1
 if test "$ac_test_CFLAGS" != set; then
   DEFAULT_CFLAGS="-Wall -Werror -Wp,-D_FORTIFY_SOURCE=2 -fstack-protector --param=ssp-buffer-size=4"
