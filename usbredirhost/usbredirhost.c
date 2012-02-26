@@ -142,6 +142,9 @@ static void va_log(struct usbredirhost *host, int level,
     host->log_func(host->func_priv, level, buf);
 }
 
+#ifdef ERROR /* defined on WIN32 */
+#undef ERROR
+#endif
 #define ERROR(...)   va_log(host, usbredirparser_error, \
                             "usbredirhost error: " __VA_ARGS__)
 #define WARNING(...) va_log(host, usbredirparser_warning, \
