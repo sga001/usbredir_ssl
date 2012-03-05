@@ -118,7 +118,6 @@ struct usbredirhost {
     int wait_disconnect;
     int connect_pending;
     struct usbredirhost_ep endpoint[MAX_ENDPOINTS];
-    uint8_t driver_detached[MAX_INTERFACES];
     uint8_t alt_setting[MAX_INTERFACES];
     struct usbredirtransfer transfers_head;
     struct usbredirfilter_rule *filter_rules;
@@ -458,8 +457,6 @@ static int usbredirhost_claim(struct usbredirhost *host, int detach_drivers)
                 ret = libusb_status_or_error_to_redir_status(host, r);
                 goto error;
             }
-            /* Note indexed by i not n !! (too ensure we don't go out of bound) */
-            host->driver_detached[i] = (r != LIBUSB_ERROR_NOT_FOUND);
         }
 
         r = libusb_claim_interface(host->handle, n);
@@ -482,12 +479,8 @@ error:
         /* This is a nop on non claimed interfaces */
         libusb_release_interface(host->handle, n);
 
-        if (detach_drivers && host->driver_detached[i]) {
-            r = libusb_attach_kernel_driver(host->handle, n);
-            if (r == 0) {
-                host->driver_detached[i] = 0;
-            }
-        }
+        if (detach_drivers)
+            libusb_attach_kernel_driver(host->handle, n);
     }
     return ret;
 }
@@ -519,17 +512,13 @@ static int usbredirhost_release(struct usbredirhost *host, int attach_drivers)
 
     for (i = 0; i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
-
-        if (host->driver_detached[i]) {
-            r = libusb_attach_kernel_driver(host->handle, n);
-            if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND /* No driver */
-                      && r != LIBUSB_ERROR_NO_DEVICE /* Device unplugged */
-                      && r != LIBUSB_ERROR_BUSY /* driver rebound already */) {
-                ERROR("could not re-attach driver to interface %d (configuration %d): %d",
-                      n, host->active_config, r);
-                ret = usb_redir_ioerror;
-            }
-            host->driver_detached[i] = 0;
+        r = libusb_attach_kernel_driver(host->handle, n);
+        if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND /* No driver */
+                  && r != LIBUSB_ERROR_NO_DEVICE /* Device unplugged */
+                  && r != LIBUSB_ERROR_BUSY /* driver rebound already */) {
+            ERROR("could not re-attach driver to interface %d (configuration %d): %d",
+                  n, host->active_config, r);
+            ret = usb_redir_ioerror;
         }
     }
 
