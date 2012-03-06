@@ -522,8 +522,8 @@ static int usbredirhost_release(struct usbredirhost *host, int attach_drivers)
         }
     }
 
-exit:
     host->claimed = 0;
+exit:
     return ret;
 }
 
