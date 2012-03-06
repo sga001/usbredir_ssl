@@ -274,7 +274,7 @@ static int libusb_status_or_error_to_redir_status(struct usbredirhost *host,
             usbredirhost_handle_disconnect(host);
             return usb_redir_ioerror;
         case LIBUSB_TRANSFER_OVERFLOW:
-            return usb_redir_ioerror;
+            return usb_redir_babble;
 
         case LIBUSB_ERROR_INVALID_PARAM: 
             return usb_redir_inval;

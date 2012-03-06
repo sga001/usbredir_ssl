@@ -1,5 +1,7 @@
 usbredir-0.4.2 6 March 2012
 ---------------------------
+-Add usb_redir_babble status code
+
 -usbredirhost:
  -Ensure we always re-attach kernel drivers on cleanup
  -Make set_config handling more robust

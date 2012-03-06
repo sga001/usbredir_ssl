@@ -1,4 +1,4 @@
-USB Network Redirection protocol description version 0.4 (22 February 2012)
+USB Network Redirection protocol description version 0.4.2 (6 March 2012)
 
 Revisions
 ---------
@@ -59,8 +59,14 @@ Version 0.4,   released 22 February 2012
 - Add an usb_redir_device_disconnect_ack packet and
   an usb_redir_cap_device_disconnect_ack capability flag
 
-USB redirerection protocol version 0.4
---------------------------------------
+Version 0.4.1, released 25 February 2012
+- No protocol changes
+
+Version 0.4.2, released 6 March 2012
+- Add usb_redir_babble status code
+
+USB redirerection protocol version 0.4.2
+----------------------------------------
 
 The protocol described in this document is meant for tunneling usb transfers
 to a single usb device. Note: not an entire hub, only a single device.
@@ -174,6 +180,7 @@ enum {
     usb_redir_ioerror,      /* IO error */
     usb_redir_stall,        /* Stalled */
     usb_redir_timeout,      /* Request timed out */
+    usb_redir_babble,       /* The device has "babbled" */
 };
 
 Note that in future versions there may be additional status codes to signal

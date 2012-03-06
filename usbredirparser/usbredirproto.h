@@ -49,6 +49,7 @@ enum {
     usb_redir_ioerror,      /* IO error */
     usb_redir_stall,        /* Stalled */
     usb_redir_timeout,      /* Request timed out */
+    usb_redir_babble,       /* The device has "babbled" (since 0.4.2) */
 };
 
 enum {
