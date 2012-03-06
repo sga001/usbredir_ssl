@@ -1386,8 +1386,8 @@ static void usbredirhost_reset(void *priv)
         usleep(100000);
     } else {
         ERROR("resetting device: %d", r);
-        usbredirhost_handle_disconnect(host);
-        FLUSH(host);
+        usbredirhost_clear_device(host);
+        host->read_status = usbredirhost_read_device_lost;
     }
 }
 
