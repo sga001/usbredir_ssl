@@ -1413,7 +1413,7 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
     struct usb_redir_set_configuration_header *set_config)
 {
     struct usbredirhost *host = priv;
-    int r;
+    int r, claim_status;
     struct usb_redir_configuration_status_header status = {
         .status = usb_redir_success,
     };
@@ -1428,24 +1428,20 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
     }
 
     usbredirhost_cancel_pending_urbs(host);
-
-    status.status = usbredirhost_release(host, 0);
-    if (status.status != usb_redir_success) {
-        goto exit;
-    }
+    usbredirhost_release(host, 0);
 
     r = libusb_set_configuration(host->handle, set_config->configuration);
     if (r < 0) {
         ERROR("could not set active configuration to %d: %d",
               (int)set_config->configuration, r);
         status.status = usb_redir_ioerror;
-        goto exit;
     }
 
-    status.status = usbredirhost_claim(host);
-    if (status.status != usb_redir_success) {
+    claim_status = usbredirhost_claim(host);
+    if (claim_status != usb_redir_success) {
         usbredirhost_clear_device(host);
         host->read_status = usbredirhost_read_device_lost;
+        status.status = usb_redir_ioerror;
         goto exit;
     }
 
