@@ -424,7 +424,7 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
 /* Called from open/close and parser read callbacks */
 static int usbredirhost_claim(struct usbredirhost *host)
 {
-    int i, n, r, ret = usb_redir_success;
+    int i, n, r;
 
     if (host->config) {
         libusb_free_config_descriptor(host->config);
@@ -459,6 +459,7 @@ static int usbredirhost_claim(struct usbredirhost *host)
     /* All interfaces begin alt setting 0 when (re)claimed */
     memset(host->alt_setting, 0, MAX_INTERFACES);
 
+    host->claimed = 1;
     for (i = 0; i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
 
@@ -466,32 +467,19 @@ static int usbredirhost_claim(struct usbredirhost *host)
         if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
             ERROR("could not detach driver from interface %d (configuration %d): %d",
                   n, host->active_config, r);
-            ret = libusb_status_or_error_to_redir_status(host, r);
-            goto error;
+            return libusb_status_or_error_to_redir_status(host, r);
         }
 
         r = libusb_claim_interface(host->handle, n);
         if (r < 0) {
             ERROR("could not claim interface %d (configuration %d): %d",
                   n, host->active_config, r);
-            ret = libusb_status_or_error_to_redir_status(host, r);
-            goto error;
+            return libusb_status_or_error_to_redir_status(host, r);
         }
     }
 
     usbredirhost_parse_config(host);
-    host->claimed = 1;
-    return ret;
-
-error:
-    for (; i >= 0; i--) {
-        n = host->config->interface[i].altsetting[0].bInterfaceNumber;
-
-        /* This is a nop on non claimed interfaces */
-        libusb_release_interface(host->handle, n);
-        libusb_attach_kernel_driver(host->handle, n);
-    }
-    return ret;
+    return usb_redir_success;
 }
 
 /* Called from open/close and parser read callbacks */
