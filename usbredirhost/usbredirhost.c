@@ -113,7 +113,7 @@ struct usbredirhost {
     int active_config;
     int claimed;
     int disconnected;
-    int rejected;
+    int read_status;
     int cancels_pending;
     int wait_disconnect;
     int connect_pending;
@@ -213,9 +213,10 @@ static int usbredirhost_read(void *priv, uint8_t *data, int count)
 {
     struct usbredirhost *host = priv;
 
-    if (host->rejected) {
-        host->rejected = 0;
-        return usbredirhost_read_device_rejected;
+    if (host->read_status) {
+        int ret = host->read_status;
+        host->read_status = 0;
+        return ret;
     }
 
     return host->read_func(host->func_priv, data, count);
@@ -1692,7 +1693,7 @@ static void usbredirhost_filter_reject(void *priv)
         return;
 
     INFO("device rejected");
-    host->rejected = 1;
+    host->read_status = usbredirhost_read_device_rejected;
 }
 
 static void usbredirhost_filter_filter(void *priv,
