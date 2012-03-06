@@ -1,3 +1,12 @@
+usbredir-0.4.2 6 March 2012
+---------------------------
+-usbredirhost:
+ -Ensure we always re-attach kernel drivers on cleanup
+ -Make set_config handling more robust
+ -A set_config or a reset can cause us to loose access to the device, if
+  this happens this now gets reported by usbredirhost_read_guest_data
+  returning usbredirhost_read_device_lost
+
 usbredir-0.4.1 25 February 2012
 -------------------------------
 -Brown paper bag release, fix a return without value in a non void function
