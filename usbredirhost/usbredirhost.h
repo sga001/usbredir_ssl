@@ -116,12 +116,16 @@ int usbredirhost_set_device(struct usbredirhost *host,
    On an usbredirhost_read_io_error this function will continue where it
    left of the last time on the next call. On an usbredirhost_read_parse_error
    it will skip to the next packet (*). On an usbredirhost_read_device_rejected
-   error, you are expected to call usbredirhost_close().
+   error, you are expected to call usbredirhost_set_device(host, NULL).
+   An usbredirhost_read_device_lost error means that the host has done the
+   equivalent of usbredirhost_set_device(host, NULL) itself because the
+   connection to the device was lost.
    *) As determined by the faulty's package headers length field */
 enum {
     usbredirhost_read_io_error        = -1,
     usbredirhost_read_parse_error     = -2,
     usbredirhost_read_device_rejected = -3,
+    usbredirhost_read_device_lost     = -4,
 };
 int usbredirhost_read_guest_data(struct usbredirhost *host);
 

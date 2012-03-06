@@ -1446,8 +1446,13 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
 
     host->active_config = set_config->configuration;
     status.status = usbredirhost_claim(host);
-    if (status.status == usb_redir_success)
-        usbredirhost_send_interface_n_ep_info(host);
+    if (status.status != usb_redir_success) {
+        usbredirhost_clear_device(host);
+        host->read_status = usbredirhost_read_device_lost;
+        goto exit;
+    }
+
+    usbredirhost_send_interface_n_ep_info(host);
 
 exit:
     status.configuration = host->active_config;
