@@ -325,6 +325,7 @@ static void usbredirhost_send_interface_n_ep_info(struct usbredirhost *host)
         ep_info.type[i] = host->endpoint[i].type;
         ep_info.interval[i] = host->endpoint[i].interval;
         ep_info.interface[i] = host->endpoint[i].interface;
+        ep_info.max_packet_size[i] = host->endpoint[i].max_packetsize;
     }
     usbredirparser_send_ep_info(host->parser, &ep_info);
 }
@@ -414,6 +415,7 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
         }
         host->endpoint[i].interval = 0;
         host->endpoint[i].interface = 0;
+        host->endpoint[i].max_packetsize = 0;
     }
 
     for (i = 0; i < host->config->bNumInterfaces; i++) {
@@ -616,6 +618,7 @@ struct usbredirhost *usbredirhost_open_full(
     usbredirparser_caps_set_cap(caps, usb_redir_cap_connect_device_version);
     usbredirparser_caps_set_cap(caps, usb_redir_cap_filter);
     usbredirparser_caps_set_cap(caps, usb_redir_cap_device_disconnect_ack);
+    usbredirparser_caps_set_cap(caps, usb_redir_cap_ep_info_max_packet_size);
 
     usbredirparser_init(host->parser, version, caps, USB_REDIR_CAPS_SIZE,
                         parser_flags);
@@ -1497,6 +1500,7 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
         }
         host->endpoint[j].interval = 0;
         host->endpoint[j].interface = 0;
+        host->endpoint[j].max_packetsize = 0;
     }
 
     host->alt_setting[i] = set_alt_setting->alt;

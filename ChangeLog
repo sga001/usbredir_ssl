@@ -2,6 +2,11 @@ usbredir-0.4.2 6 March 2012
 ---------------------------
 -Add usb_redir_babble status code
 
+-usbredirparser:
+ -extend the usb_redir_ep_info packet header with a max_packet_size field
+  This new field is only send / received if both sides have the (new)
+  usb_redir_cap_ep_info_max_packet_size capability
+
 -usbredirhost:
  -Ensure we always re-attach kernel drivers on cleanup
  -Make set_config handling more robust

@@ -113,6 +113,8 @@ enum {
     usb_redir_cap_filter,
     /* Supports the usb_redir_device_disconnect_ack packet */
     usb_redir_cap_device_disconnect_ack,
+    /* The ep_info packet has the max_packet_size field */
+    usb_redir_cap_ep_info_max_packet_size,
 };
 /* Number of uint32_t-s needed to hold all (known) capabilities */
 #define USB_REDIR_CAPS_SIZE 1
@@ -150,6 +152,7 @@ struct usb_redir_ep_info_header {
     uint8_t type[32];
     uint8_t interval[32];
     uint8_t interface[32];
+    uint16_t max_packet_size[32];
 } ATTR_PACKED;
 
 struct usb_redir_set_configuration_header {

@@ -64,6 +64,9 @@ Version 0.4.1, released 25 February 2012
 
 Version 0.4.2, released 6 March 2012
 - Add usb_redir_babble status code
+- The usb_redir_ep_info_header has been extended with a max_packet_size field
+  This is only send / received if both sides have the
+  usb_redir_cap_ep_info_max_packet_size capability
 
 USB redirerection protocol version 0.4.2
 ----------------------------------------
@@ -224,6 +227,8 @@ enum {
     usb_redir_cap_filter,
     /* Supports the usb_redir_device_disconnect_ack packet */
     usb_redir_cap_device_disconnect_ack,
+    /* The ep_info packet has the max_packet_size field */
+    usb_redir_cap_ep_info_max_packet_size,
 };
 
 usb_redir_device_connect
@@ -336,6 +341,7 @@ struct usb_redir_ep_info_header {
     uint8_t type[32];
     uint8_t interval[32];
     uint8_t interface[32];
+    uint16_t max_packet_size[32];
 }
 
 No packet type specific additional data.
@@ -345,6 +351,9 @@ type, interval and interface it belongs to for all possible endpoints,
 first 0-15 out, then 0-15 in. This gets send after a (successful) initial
 connection, reset, set_config and set_alt_setting.
 
+The max_packet_size field should only be send (and expected on receive)
+when both sides have the usb_redir_cap_ep_info_max_packet_size capability.
+If this is not the case the length of the packet will be 64 bytes less!
 
 usb_redir_set_configuration
 ---------------------------

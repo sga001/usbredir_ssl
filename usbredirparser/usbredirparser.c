@@ -266,7 +266,14 @@ static int usbredirparser_get_type_header_len(
         }
     case usb_redir_ep_info:
         if (!command_for_host) {
-            return sizeof(struct usb_redir_ep_info_header);
+            if (usbredirparser_have_cap(parser_pub,
+                                    usb_redir_cap_ep_info_max_packet_size) &&
+                usbredirparser_peer_has_cap(parser_pub,
+                                    usb_redir_cap_ep_info_max_packet_size)) {
+                return sizeof(struct usb_redir_ep_info_header);
+            } else {
+                return sizeof(struct usb_redir_ep_info_header_no_max_pktsz_version);
+            }
         } else {
             return -1;
         }
