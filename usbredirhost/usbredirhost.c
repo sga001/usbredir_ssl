@@ -1490,7 +1490,7 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
         if (host->endpoint[j].interface != set_alt_setting->interface)
             continue;
 
-        if ((i & 0x0f) == 0) {
+        if ((j & 0x0f) == 0) {
             host->endpoint[j].type = usb_redir_type_control;
         } else {
             host->endpoint[j].type = usb_redir_type_invalid;
