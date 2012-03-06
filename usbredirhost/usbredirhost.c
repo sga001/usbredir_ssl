@@ -431,6 +431,18 @@ static int usbredirhost_claim(struct usbredirhost *host)
         host->config = NULL;
     }
 
+    r = libusb_get_configuration(host->handle, &host->active_config);
+    if (r < 0) {
+        ERROR("could not get active configuration: %d", r);
+        return libusb_status_or_error_to_redir_status(host, r);
+    }
+
+    r = libusb_get_device_descriptor(host->dev, &host->desc);
+    if (r < 0) {
+        ERROR("could not get device descriptor: %d", r);
+        return libusb_status_or_error_to_redir_status(host, r);
+    }
+
     r = libusb_get_config_descriptor_by_value(host->dev, host->active_config,
                                               &host->config);
     if (r < 0) {
@@ -658,7 +670,7 @@ void usbredirhost_close(struct usbredirhost *host)
 int usbredirhost_set_device(struct usbredirhost *host,
                              libusb_device_handle *usb_dev_handle)
 {
-    int r, status;
+    int status;
 
     usbredirhost_clear_device(host);
 
@@ -667,20 +679,6 @@ int usbredirhost_set_device(struct usbredirhost *host,
 
     host->dev = libusb_get_device(usb_dev_handle);
     host->handle = usb_dev_handle;
-
-    r = libusb_get_configuration(host->handle, &host->active_config);
-    if (r < 0) {
-        ERROR("could not get active configuration: %d", r);
-        usbredirhost_clear_device(host);
-        return libusb_status_or_error_to_redir_status(host, r);
-    }
-
-    r = libusb_get_device_descriptor(host->dev, &host->desc);
-    if (r < 0) {
-        ERROR("could not get device descriptor: %d", r);
-        usbredirhost_clear_device(host);
-        return libusb_status_or_error_to_redir_status(host, r);
-    }
 
     status = usbredirhost_claim(host);
     if (status != usb_redir_success) {
@@ -1444,7 +1442,6 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
         goto exit;
     }
 
-    host->active_config = set_config->configuration;
     status.status = usbredirhost_claim(host);
     if (status.status != usb_redir_success) {
         usbredirhost_clear_device(host);
