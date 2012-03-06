@@ -495,13 +495,12 @@ error:
 }
 
 /* Called from open/close and parser read callbacks */
-static int usbredirhost_release(struct usbredirhost *host, int attach_drivers)
+static void usbredirhost_release(struct usbredirhost *host, int attach_drivers)
 {
-    int i, n, r, ret = usb_redir_success;
+    int i, n, r;
 
-    if (!host->claimed) {
-        return usb_redir_success;
-    }
+    if (!host->claimed)
+        return;
 
     for (i = 0; i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
@@ -511,13 +510,11 @@ static int usbredirhost_release(struct usbredirhost *host, int attach_drivers)
                   && r != LIBUSB_ERROR_NO_DEVICE) {
             ERROR("could not release interface %d (configuration %d): %d",
                   n, host->active_config, r);
-            ret = usb_redir_ioerror;
         }
     }
 
-    if (!attach_drivers) {
-        goto exit;
-    }
+    if (!attach_drivers)
+        return;
 
     for (i = 0; i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
@@ -527,13 +524,10 @@ static int usbredirhost_release(struct usbredirhost *host, int attach_drivers)
                   && r != LIBUSB_ERROR_BUSY /* driver rebound already */) {
             ERROR("could not re-attach driver to interface %d (configuration %d): %d",
                   n, host->active_config, r);
-            ret = usb_redir_ioerror;
         }
     }
 
     host->claimed = 0;
-exit:
-    return ret;
 }
 
 struct usbredirhost *usbredirhost_open(
