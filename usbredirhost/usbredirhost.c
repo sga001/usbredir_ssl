@@ -421,7 +421,7 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
 }
 
 /* Called from open/close and parser read callbacks */
-static int usbredirhost_claim(struct usbredirhost *host, int detach_drivers)
+static int usbredirhost_claim(struct usbredirhost *host)
 {
     int i, n, r, ret = usb_redir_success;
 
@@ -449,14 +449,12 @@ static int usbredirhost_claim(struct usbredirhost *host, int detach_drivers)
     for (i = 0; i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
 
-        if (detach_drivers) {
-            r = libusb_detach_kernel_driver(host->handle, n);
-            if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
-                ERROR("could not detach driver from interface %d (configuration %d): %d",
-                      n, host->active_config, r);
-                ret = libusb_status_or_error_to_redir_status(host, r);
-                goto error;
-            }
+        r = libusb_detach_kernel_driver(host->handle, n);
+        if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
+            ERROR("could not detach driver from interface %d (configuration %d): %d",
+                  n, host->active_config, r);
+            ret = libusb_status_or_error_to_redir_status(host, r);
+            goto error;
         }
 
         r = libusb_claim_interface(host->handle, n);
@@ -478,9 +476,7 @@ error:
 
         /* This is a nop on non claimed interfaces */
         libusb_release_interface(host->handle, n);
-
-        if (detach_drivers)
-            libusb_attach_kernel_driver(host->handle, n);
+        libusb_attach_kernel_driver(host->handle, n);
     }
     return ret;
 }
@@ -685,7 +681,7 @@ int usbredirhost_set_device(struct usbredirhost *host,
         return libusb_status_or_error_to_redir_status(host, r);
     }
 
-    status = usbredirhost_claim(host, 1);
+    status = usbredirhost_claim(host);
     if (status != usb_redir_success) {
         usbredirhost_clear_device(host);
         return status;
@@ -1448,7 +1444,7 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
     }
 
     host->active_config = set_config->configuration;
-    status.status = usbredirhost_claim(host, 0);
+    status.status = usbredirhost_claim(host);
     if (status.status == usb_redir_success)
         usbredirhost_send_interface_n_ep_info(host);
 
