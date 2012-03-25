@@ -1031,7 +1031,7 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
     }
 }
 
-static void usbredirhost_iso_packet_complete(
+static void LIBUSB_CALL usbredirhost_iso_packet_complete(
     struct libusb_transfer *libusb_transfer)
 {
     struct usbredirtransfer *transfer = libusb_transfer->user_data;
@@ -1270,7 +1270,7 @@ static int usbredirhost_submit_interrupt_in_transfer(struct usbredirhost *host,
     return usb_redir_success;
 }
 
-static void usbredirhost_interrupt_packet_complete(
+static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
     struct libusb_transfer *libusb_transfer)
 {
     struct usbredirtransfer *transfer = libusb_transfer->user_data;
@@ -1793,7 +1793,7 @@ static void usbredirhost_cancel_data_packet(void *priv, uint32_t id)
     UNLOCK(host);
 }
 
-static void usbredirhost_control_packet_complete(
+static void LIBUSB_CALL usbredirhost_control_packet_complete(
     struct libusb_transfer *libusb_transfer)
 {
     struct usb_redir_control_packet_header control_packet;
@@ -1924,7 +1924,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
     }
 }
 
-static void usbredirhost_bulk_packet_complete(
+static void LIBUSB_CALL usbredirhost_bulk_packet_complete(
     struct libusb_transfer *libusb_transfer)
 {
     struct usb_redir_bulk_packet_header bulk_packet;
