@@ -110,7 +110,6 @@ struct usbredirhost {
     libusb_device_handle *handle;
     struct libusb_device_descriptor desc;
     struct libusb_config_descriptor *config;
-    int active_config;
     int claimed;
     int disconnected;
     int read_status;
@@ -307,10 +306,12 @@ static void usbredirhost_send_interface_n_ep_info(struct usbredirhost *host)
     int i;
     const struct libusb_interface_descriptor *intf_desc;
     struct usb_redir_ep_info_header ep_info;
-    struct usb_redir_interface_info_header interface_info;
+    struct usb_redir_interface_info_header interface_info = { 0, };
 
-    interface_info.interface_count = host->config->bNumInterfaces;
-    for (i = 0; i < host->config->bNumInterfaces; i++) {
+    if (host->config)
+        interface_info.interface_count = host->config->bNumInterfaces;
+
+    for (i = 0; i < interface_info.interface_count; i++) {
         intf_desc =
             &host->config->interface[i].altsetting[host->alt_setting[i]];
 
@@ -418,7 +419,7 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
         host->endpoint[i].max_packetsize = 0;
     }
 
-    for (i = 0; i < host->config->bNumInterfaces; i++) {
+    for (i = 0; host->config && i < host->config->bNumInterfaces; i++) {
         usbredirhost_parse_interface(host, i);
     }
 }
@@ -433,49 +434,41 @@ static int usbredirhost_claim(struct usbredirhost *host)
         host->config = NULL;
     }
 
-    r = libusb_get_configuration(host->handle, &host->active_config);
-    if (r < 0) {
-        ERROR("could not get active configuration: %d", r);
-        return libusb_status_or_error_to_redir_status(host, r);
-    }
-
     r = libusb_get_device_descriptor(host->dev, &host->desc);
     if (r < 0) {
         ERROR("could not get device descriptor: %d", r);
         return libusb_status_or_error_to_redir_status(host, r);
     }
 
-    r = libusb_get_config_descriptor_by_value(host->dev, host->active_config,
-                                              &host->config);
-    if (r < 0) {
-        ERROR("could not get descriptors for configuration %d: %d",
-              host->active_config, r);
+    r = libusb_get_active_config_descriptor(host->dev, &host->config);
+    if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
+        ERROR("could not get descriptors for active configuration: %d", r);
         return libusb_status_or_error_to_redir_status(host, r);
     }
-    if (host->config->bNumInterfaces > MAX_INTERFACES) {
+    if (host->config && host->config->bNumInterfaces > MAX_INTERFACES) {
         ERROR("usb decriptor has too much intefaces (%d > %d)",
               (int)host->config->bNumInterfaces, MAX_INTERFACES);
         return usb_redir_ioerror;
     }
 
-    /* All interfaces begin alt setting 0 when (re)claimed */
+    /* All interfaces begin at alt setting 0 when (re)claimed */
     memset(host->alt_setting, 0, MAX_INTERFACES);
 
     host->claimed = 1;
-    for (i = 0; i < host->config->bNumInterfaces; i++) {
+    for (i = 0; host->config && i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
 
         r = libusb_detach_kernel_driver(host->handle, n);
         if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
             ERROR("could not detach driver from interface %d (configuration %d): %d",
-                  n, host->active_config, r);
+                  n, host->config->bConfigurationValue, r);
             return libusb_status_or_error_to_redir_status(host, r);
         }
 
         r = libusb_claim_interface(host->handle, n);
         if (r < 0) {
             ERROR("could not claim interface %d (configuration %d): %d",
-                  n, host->active_config, r);
+                  n, host->config->bConfigurationValue, r);
             return libusb_status_or_error_to_redir_status(host, r);
         }
     }
@@ -492,28 +485,28 @@ static void usbredirhost_release(struct usbredirhost *host, int attach_drivers)
     if (!host->claimed)
         return;
 
-    for (i = 0; i < host->config->bNumInterfaces; i++) {
+    for (i = 0; host->config && i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
 
         r = libusb_release_interface(host->handle, n);
         if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND
                   && r != LIBUSB_ERROR_NO_DEVICE) {
             ERROR("could not release interface %d (configuration %d): %d",
-                  n, host->active_config, r);
+                  n, host->config->bConfigurationValue, r);
         }
     }
 
     if (!attach_drivers)
         return;
 
-    for (i = 0; i < host->config->bNumInterfaces; i++) {
+    for (i = 0; host->config && i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
         r = libusb_attach_kernel_driver(host->handle, n);
         if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND /* No driver */
                   && r != LIBUSB_ERROR_NO_DEVICE /* Device unplugged */
                   && r != LIBUSB_ERROR_BUSY /* driver rebound already */) {
             ERROR("could not re-attach driver to interface %d (configuration %d): %d",
-                  n, host->active_config, r);
+                  n, host->config->bConfigurationValue, r);
         }
     }
 
@@ -826,7 +819,7 @@ static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host)
     return wait;
 }
 
-/* Called from close and parser read callbacks */
+/* Only called from read callbacks */
 static void usbredirhost_cancel_pending_urbs_on_interface(
     struct usbredirhost *host, int i)
 {
@@ -864,7 +857,7 @@ static int usbredirhost_bInterfaceNumber_to_index(
 {
     int i, n;
 
-    for (i = 0; i < host->config->bNumInterfaces; i++) {
+    for (i = 0; host->config && i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
         if (n == bInterfaceNumber) {
             return i;
@@ -1408,7 +1401,8 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
         goto exit;
     }
 
-    if (set_config->configuration == host->active_config) {
+    if (host->config &&
+            host->config->bConfigurationValue == set_config->configuration) {
         goto exit;
     }
 
@@ -1433,7 +1427,7 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
     usbredirhost_send_interface_n_ep_info(host);
 
 exit:
-    status.configuration = host->active_config;
+    status.configuration = host->config ? host->config->bConfigurationValue:0;
     usbredirparser_send_configuration_status(host->parser, id, &status);
     FLUSH(host);
 }
@@ -1447,7 +1441,7 @@ static void usbredirhost_get_configuration(void *priv, uint32_t id)
         status.status = usb_redir_ioerror;
     else
         status.status = usb_redir_success;
-    status.configuration = host->active_config;
+    status.configuration = host->config ? host->config->bConfigurationValue:0;
     usbredirparser_send_configuration_status(host->parser, id, &status);
     FLUSH(host);
 }
@@ -2176,7 +2170,7 @@ int usbredirhost_check_device_filter(const struct usbredirfilter_rule *rules,
 {
     int i, r, num_interfaces;
     struct libusb_device_descriptor dev_desc;
-    struct libusb_config_descriptor *config;
+    struct libusb_config_descriptor *config = NULL;
     uint8_t interface_class[MAX_INTERFACES];
     uint8_t interface_subclass[MAX_INTERFACES];
     uint8_t interface_protocol[MAX_INTERFACES];
@@ -2189,11 +2183,19 @@ int usbredirhost_check_device_filter(const struct usbredirfilter_rule *rules,
     }
 
     r = libusb_get_active_config_descriptor(dev, &config);
-    if (r < 0) {
+    if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
         if (r == LIBUSB_ERROR_NO_MEM)
             return -ENOMEM;
         return -EIO;
     }
+    if (config == NULL) {
+        return usbredirfilter_check(rules, rules_count, dev_desc.bDeviceClass,
+                    dev_desc.bDeviceSubClass, dev_desc.bDeviceProtocol,
+                    NULL, NULL, NULL, 0,
+                    dev_desc.idVendor, dev_desc.idProduct,
+                    dev_desc.bcdDevice, flags);
+    }
+
     num_interfaces = config->bNumInterfaces;
     for (i = 0; i < num_interfaces; i++) {
         const struct libusb_interface_descriptor *intf_desc =
