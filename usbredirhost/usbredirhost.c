@@ -110,6 +110,7 @@ struct usbredirhost {
     libusb_device_handle *handle;
     struct libusb_device_descriptor desc;
     struct libusb_config_descriptor *config;
+    int restore_config;
     int claimed;
     int disconnected;
     int read_status;
@@ -425,7 +426,7 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
 }
 
 /* Called from open/close and parser read callbacks */
-static int usbredirhost_claim(struct usbredirhost *host)
+static int usbredirhost_claim(struct usbredirhost *host, int initial_claim)
 {
     int i, n, r;
 
@@ -449,6 +450,27 @@ static int usbredirhost_claim(struct usbredirhost *host)
         ERROR("usb decriptor has too much intefaces (%d > %d)",
               (int)host->config->bNumInterfaces, MAX_INTERFACES);
         return usb_redir_ioerror;
+    }
+
+    if (initial_claim) {
+        if (host->config)
+            host->restore_config = host->config->bConfigurationValue;
+        else
+            host->restore_config = -1; /* unconfigured */
+
+        /* If the device is unconfigured and has only 1 config, we assume
+           this is the result of the user doing "safely remove hardware",
+           and we try to reset the device configuration to this config when
+           we release the device, so that it becomes usable again. */
+        if (host->restore_config == -1 && host->desc.bNumConfigurations == 1) {
+            struct libusb_config_descriptor *config;
+
+            r = libusb_get_config_descriptor(host->dev, 0, &config);
+            if (r == 0) {
+                host->restore_config = config->bConfigurationValue;
+                libusb_free_config_descriptor(config);
+            }
+        }
     }
 
     /* All interfaces begin at alt setting 0 when (re)claimed */
@@ -480,7 +502,7 @@ static int usbredirhost_claim(struct usbredirhost *host)
 /* Called from open/close and parser read callbacks */
 static void usbredirhost_release(struct usbredirhost *host, int attach_drivers)
 {
-    int i, n, r;
+    int i, n, r, current_config = -1;
 
     if (!host->claimed)
         return;
@@ -499,6 +521,19 @@ static void usbredirhost_release(struct usbredirhost *host, int attach_drivers)
     if (!attach_drivers)
         return;
 
+    host->claimed = 0;
+
+    if (host->config)
+        current_config = host->config->bConfigurationValue;
+
+    if (current_config != host->restore_config) {
+        r = libusb_set_configuration(host->handle, host->restore_config);
+        if (r < 0)
+            ERROR("could not restore configuration to %d: %d",
+                  host->restore_config, r);
+        return; /* set_config automatically binds drivers for the new config */
+    }
+
     for (i = 0; host->config && i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
         r = libusb_attach_kernel_driver(host->handle, n);
@@ -509,8 +544,6 @@ static void usbredirhost_release(struct usbredirhost *host, int attach_drivers)
                   n, host->config->bConfigurationValue, r);
         }
     }
-
-    host->claimed = 0;
 }
 
 struct usbredirhost *usbredirhost_open(
@@ -658,7 +691,7 @@ int usbredirhost_set_device(struct usbredirhost *host,
     host->dev = libusb_get_device(usb_dev_handle);
     host->handle = usb_dev_handle;
 
-    status = usbredirhost_claim(host);
+    status = usbredirhost_claim(host, 1);
     if (status != usb_redir_success) {
         usbredirhost_clear_device(host);
         return status;
@@ -1416,7 +1449,7 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
         status.status = usb_redir_ioerror;
     }
 
-    claim_status = usbredirhost_claim(host);
+    claim_status = usbredirhost_claim(host, 0);
     if (claim_status != usb_redir_success) {
         usbredirhost_clear_device(host);
         host->read_status = usbredirhost_read_device_lost;
