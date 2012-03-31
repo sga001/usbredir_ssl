@@ -112,6 +112,7 @@ struct usbredirhost {
     struct libusb_config_descriptor *config;
     int restore_config;
     int claimed;
+    int reset;
     int disconnected;
     int read_status;
     int cancels_pending;
@@ -372,7 +373,7 @@ static void usbredirhost_send_device_connect(struct usbredirhost *host)
     usbredirhost_send_interface_n_ep_info(host);
     usbredirparser_send_device_connect(host->parser, &device_connect);
     host->connect_pending = 0;
-    host->disconnected = 0; /* The guest know may use the device */
+    host->disconnected = 0; /* The guest may now use the device */
 
     FLUSH(host);
 }
@@ -681,7 +682,7 @@ void usbredirhost_close(struct usbredirhost *host)
 int usbredirhost_set_device(struct usbredirhost *host,
                              libusb_device_handle *usb_dev_handle)
 {
-    int status;
+    int r, status;
 
     usbredirhost_clear_device(host);
 
@@ -696,6 +697,15 @@ int usbredirhost_set_device(struct usbredirhost *host,
         usbredirhost_clear_device(host);
         return status;
     }
+
+    /* The first thing almost any usb-guest does is a (slow) device-reset
+       so lets do that before hand */
+    r = libusb_reset_device(host->handle);
+    if (r != 0) {
+        usbredirhost_clear_device(host);
+        return libusb_status_or_error_to_redir_status(host, r);
+    }
+    host->reset = 1;
 
     usbredirhost_send_device_connect(host);
 
@@ -1405,14 +1415,13 @@ static void usbredirhost_reset(void *priv)
     struct usbredirhost *host = priv;
     int r;
 
-    if (host->disconnected) {
+    if (host->disconnected || host->reset) {
         return;
     }
 
     r = libusb_reset_device(host->handle);
     if (r == 0) {
-        /* Some devices need some time to settle before firing more cmds */
-        usleep(100000);
+        host->reset = 1;
     } else {
         ERROR("resetting device: %d", r);
         usbredirhost_clear_device(host);
@@ -1438,6 +1447,8 @@ static void usbredirhost_set_configuration(void *priv, uint32_t id,
             host->config->bConfigurationValue == set_config->configuration) {
         goto exit;
     }
+
+    host->reset = 0;
 
     usbredirhost_cancel_pending_urbs(host);
     usbredirhost_release(host, 0);
@@ -1501,6 +1512,8 @@ static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
         status.alt = -1;
         goto exit_unknown_interface;
     }
+
+    host->reset = 0;
 
     usbredirhost_cancel_pending_urbs_on_interface(host, i);
 
@@ -1592,6 +1605,8 @@ static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
         goto leave;
     }
 
+    host->reset = 0;
+
     /* For input endpoints submit the transfers now */
     if (start_iso_stream->endpoint & LIBUSB_ENDPOINT_IN) {
         for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
@@ -1656,6 +1671,9 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint32_t id,
         status = usb_redir_stall;
         goto leave;
     }
+
+    host->reset = 0;
+
     status = usbredirhost_submit_interrupt_in_transfer(host, ep);
 leave:
     UNLOCK(host);
@@ -1843,6 +1861,8 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
         return;
     }
 
+    host->reset = 0;
+
     /* If it is a clear stall, we need to do an actual clear stall, rather then
        just forward the control packet, so that the usbhost usbstack knows
        the stall is cleared */
@@ -1986,6 +2006,8 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
         free(data);
         return;
     }
+
+    host->reset = 0;
 
     libusb_fill_bulk_transfer(transfer->transfer, host->handle, ep,
                               data, bulk_packet->length,
@@ -2171,6 +2193,8 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
         usbredirparser_free_packet_data(host->parser, data);
         return;
     }
+
+    host->reset = 0;
 
     libusb_fill_interrupt_transfer(transfer->transfer, host->handle, ep,
         data, data_len, usbredirhost_interrupt_packet_complete,
