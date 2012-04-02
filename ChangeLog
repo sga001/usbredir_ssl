@@ -1,3 +1,12 @@
+usbredir-0.4.3 2 April 2012
+---------------------------
+-usbredirhost:
+ -Don't crash on devices in unconfigured state
+ -Restore original device configuration when releasing the device
+ -Significantly speed up reset handling
+-usbredirserver:
+ -Add a manpage
+
 usbredir-0.4.2 6 March 2012
 ---------------------------
 -Add usb_redir_babble status code
