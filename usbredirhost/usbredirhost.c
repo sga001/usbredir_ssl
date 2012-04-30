@@ -485,7 +485,8 @@ static int usbredirhost_claim(struct usbredirhost *host, int initial_claim)
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
 
         r = libusb_detach_kernel_driver(host->handle, n);
-        if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
+        if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND
+                  && r != LIBUSB_ERROR_NOT_SUPPORTED) {
             ERROR("could not detach driver from interface %d (configuration %d): %d",
                   n, host->config->bConfigurationValue, r);
             return libusb_status_or_error_to_redir_status(host, r);
@@ -543,6 +544,7 @@ static void usbredirhost_release(struct usbredirhost *host, int attach_drivers)
         r = libusb_attach_kernel_driver(host->handle, n);
         if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND /* No driver */
                   && r != LIBUSB_ERROR_NO_DEVICE /* Device unplugged */
+                  && r != LIBUSB_ERROR_NOT_SUPPORTED /* Not supported */
                   && r != LIBUSB_ERROR_BUSY /* driver rebound already */) {
             ERROR("could not re-attach driver to interface %d (configuration %d): %d",
                   n, host->config->bConfigurationValue, r);
