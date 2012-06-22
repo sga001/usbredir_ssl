@@ -31,7 +31,7 @@
 #define MAX_ENDPOINTS        32
 #define MAX_INTERFACES       32 /* Max 32 endpoints and thus interfaces */
 #define CTRL_TIMEOUT       5000 /* USB specifies a 5 second max timeout */
-#define BULK_TIMEOUT       5000
+#define BULK_TIMEOUT          0 /* No timeout for bulk transfers */
 #define ISO_TIMEOUT        1000
 #define INTERRUPT_TIMEOUT     0 /* No timeout for interrupt transfers */
 
@@ -2017,7 +2017,7 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
     libusb_fill_bulk_transfer(transfer->transfer, host->handle, ep,
                               data, bulk_packet->length,
                               usbredirhost_bulk_packet_complete,
-                              transfer, CTRL_TIMEOUT);
+                              transfer, BULK_TIMEOUT);
     transfer->id = id;
     transfer->bulk_packet = *bulk_packet;
 
