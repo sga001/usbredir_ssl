@@ -707,6 +707,7 @@ int usbredirhost_set_device(struct usbredirhost *host,
        so lets do that before hand */
     r = libusb_reset_device(host->handle);
     if (r != 0) {
+        ERROR("resetting device: %d", r);
         usbredirhost_clear_device(host);
         return libusb_status_or_error_to_redir_status(host, r);
     }
