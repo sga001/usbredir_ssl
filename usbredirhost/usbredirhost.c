@@ -487,18 +487,18 @@ static int usbredirhost_claim(struct usbredirhost *host, int initial_claim)
         r = libusb_detach_kernel_driver(host->handle, n);
         if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND
                   && r != LIBUSB_ERROR_NOT_SUPPORTED) {
-            if (r == LIBUSB_ERROR_BUSY)
-                ERROR("Device is in use by another application");
-            else
-                ERROR("could not detach driver from interface %d (configuration %d): %d",
-                      n, host->config->bConfigurationValue, r);
+            ERROR("could not detach driver from interface %d (configuration %d): %d",
+                  n, host->config->bConfigurationValue, r);
             return libusb_status_or_error_to_redir_status(host, r);
         }
 
         r = libusb_claim_interface(host->handle, n);
         if (r < 0) {
-            ERROR("could not claim interface %d (configuration %d): %d",
-                  n, host->config->bConfigurationValue, r);
+            if (r == LIBUSB_ERROR_BUSY)
+                ERROR("Device is in use by another application");
+            else
+                ERROR("could not claim interface %d (configuration %d): %d",
+                      n, host->config->bConfigurationValue, r);
             return libusb_status_or_error_to_redir_status(host, r);
         }
     }
