@@ -130,30 +130,27 @@ static void va_log(struct usbredirhost *host, int level,
 {
     char buf[512];
     va_list ap;
+    int n;
 
     if (level > host->verbose) {
         return;
     }
 
+    n = sprintf(buf, "usbredirhost: ");
     va_start(ap, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, ap);
+    vsnprintf(buf + n, sizeof(buf) - n, fmt, ap);
     va_end(ap);
-    
+
     host->log_func(host->func_priv, level, buf);
 }
 
 #ifdef ERROR /* defined on WIN32 */
 #undef ERROR
 #endif
-#define ERROR(...)   va_log(host, usbredirparser_error, \
-                            "usbredirhost error: " __VA_ARGS__)
-#define WARNING(...) va_log(host, usbredirparser_warning, \
-                            "usbredirhost warning: " __VA_ARGS__)
-#define INFO(...)    va_log(host, usbredirparser_info, \
-                            "usbredirhost: " __VA_ARGS__)
-
-#define DEBUG(...)   va_log(host, usbredirparser_debug, \
-                            "usbredirhost: " __VA_ARGS__)
+#define ERROR(...)   va_log(host, usbredirparser_error, __VA_ARGS__)
+#define WARNING(...) va_log(host, usbredirparser_warning, __VA_ARGS__)
+#define INFO(...)    va_log(host, usbredirparser_info, __VA_ARGS__)
+#define DEBUG(...)   va_log(host, usbredirparser_debug, __VA_ARGS__)
 
 static void usbredirhost_hello(void *priv, struct usb_redir_hello_header *h);
 static void usbredirhost_reset(void *priv);
@@ -710,7 +707,7 @@ int usbredirhost_set_device(struct usbredirhost *host,
        so lets do that before hand */
     r = libusb_reset_device(host->handle);
     if (r != 0) {
-        ERROR("resetting device: %d", r);
+        ERROR("error resetting device: %d", r);
         usbredirhost_clear_device(host);
         return libusb_status_or_error_to_redir_status(host, r);
     }
@@ -959,7 +956,7 @@ static int usbredirhost_submit_iso_transfer_unlocked(struct usbredirhost *host,
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
         uint8_t ep = transfer->transfer->endpoint;
-        ERROR("submitting iso transfer on ep %02X: %d, stopping stream",
+        ERROR("error submitting iso transfer on ep %02X: %d, stopping stream",
               (unsigned int)ep, r);
         usbredirhost_cancel_iso_stream_unlocked(host, ep);
         return libusb_status_or_error_to_redir_status(host, r);
@@ -1157,7 +1154,7 @@ static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
     unsigned char *buffer;
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_iso) {
-        ERROR("start iso stream on non iso endpoint");
+        ERROR("error start iso stream on non iso endpoint");
         return usb_redir_inval;
     }
 
@@ -1165,12 +1162,12 @@ static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
            pkts_per_transfer > MAX_ISO_PACKETS_PER_TRANSFER ||
            transfer_count < 1 ||
            transfer_count > MAX_ISO_TRANSFER_COUNT) {
-        ERROR("start iso stream pkts_per_urb or no_urbs invalid");
+        ERROR("error start iso stream pkts_per_urb or no_urbs invalid");
         return usb_redir_inval;
     }
 
     if (host->endpoint[EP2I(ep)].iso_transfer_count) {
-        ERROR("received iso start for already started iso stream");
+        ERROR("error received iso start for already started iso stream");
         return usb_redir_inval;
     }
 
@@ -1268,7 +1265,7 @@ static int usbredirhost_submit_interrupt_in_transfer(struct usbredirhost *host,
     transfer = host->endpoint[EP2I(ep)].interrupt_in_transfer;
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
-        ERROR("submitting interrupt transfer on ep %02X: %d", ep, r);
+        ERROR("error submitting interrupt transfer on ep %02X: %d", ep, r);
         usbredirhost_free_transfer(transfer);
         host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
         return usb_redir_stall;
@@ -1365,12 +1362,12 @@ static int usbredirhost_alloc_interrupt_in_transfer(struct usbredirhost *host,
     struct usbredirtransfer *transfer;
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_interrupt) {
-        ERROR("received start interrupt packet for non interrupt ep %02X", ep);
+        ERROR("error received start interrupt packet for non interrupt ep %02X", ep);
         return usb_redir_inval;
     }
 
     if (!(ep & LIBUSB_ENDPOINT_IN)) {
-        ERROR("received start interrupt packet for non input ep %02X", ep);
+        ERROR("error received start interrupt packet for non input ep %02X", ep);
         return usb_redir_inval;
     }
 
@@ -1432,7 +1429,7 @@ static void usbredirhost_reset(void *priv)
     if (r == 0) {
         host->reset = 1;
     } else {
-        ERROR("resetting device: %d", r);
+        ERROR("error resetting device: %d", r);
         usbredirhost_clear_device(host);
         host->read_status = usbredirhost_read_device_lost;
     }
@@ -1670,7 +1667,7 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint32_t id,
     }
 
     if (host->endpoint[EP2I(ep)].interrupt_in_transfer) {
-        ERROR("received interrupt start for already active ep %02X", ep);
+        ERROR("error received interrupt start for already active ep %02X", ep);
         status = usb_redir_inval;
         goto leave;
     }
@@ -1749,7 +1746,7 @@ static void usbredirhost_device_disconnect_ack(void *priv)
     struct usbredirhost *host = priv;
 
     if (!host->wait_disconnect) {
-        ERROR("Received disconnect ack without sending a disconnect");
+        ERROR("error received disconnect ack without sending a disconnect");
         return;
     }
 
@@ -1862,7 +1859,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
 
     /* Verify endpoint type */
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_control) {
-        ERROR("control packet on non control ep %02X", ep);
+        ERROR("error control packet on non control ep %02X", ep);
         usbredirhost_send_control_status(host, id, control_packet,
                                          usb_redir_inval);
         usbredirparser_free_packet_data(host->parser, data);
@@ -1923,7 +1920,7 @@ static void usbredirhost_control_packet(void *priv, uint32_t id,
 
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
-        ERROR("submitting control transfer on ep %02X: %d", ep, r);
+        ERROR("error submitting control transfer on ep %02X: %d", ep, r);
         transfer->transfer->actual_length = 0;
         transfer->transfer->status = r;
         usbredirhost_control_packet_complete(transfer->transfer);
@@ -1991,7 +1988,7 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
     }
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_bulk) {
-        ERROR("bulk packet on non bulk ep %02X", ep);
+        ERROR("error bulk packet on non bulk ep %02X", ep);
         usbredirhost_send_bulk_status(host, id, bulk_packet, usb_redir_inval);
         usbredirparser_free_packet_data(host->parser, data);
         FLUSH(host);
@@ -2029,7 +2026,7 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
 
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
-        ERROR("submitting bulk transfer on ep %02X: %d", ep, r);
+        ERROR("error submitting bulk transfer on ep %02X: %d", ep, r);
         transfer->transfer->actual_length = 0;
         transfer->transfer->status = r;
         usbredirhost_bulk_packet_complete(transfer->transfer);
@@ -2053,19 +2050,19 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     }
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_iso) {
-        ERROR("received iso packet for non iso ep %02X", ep);
+        ERROR("error received iso packet for non iso ep %02X", ep);
         status = usb_redir_inval;
         goto leave;
     }
 
     if (host->endpoint[EP2I(ep)].iso_transfer_count == 0) {
-        ERROR("received iso out packet for non started iso stream");
+        ERROR("error received iso out packet for non started iso stream");
         status = usb_redir_inval;
         goto leave;
     }
 
     if (data_len > host->endpoint[EP2I(ep)].max_packetsize) {
-        ERROR("received iso out packet is larger than wMaxPacketSize");
+        ERROR("error received iso out packet is larger than wMaxPacketSize");
         status = usb_redir_inval;
         goto leave;
     }
@@ -2175,7 +2172,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
     }
 
     if (host->endpoint[EP2I(ep)].type != usb_redir_type_interrupt) {
-        ERROR("received interrupt packet for non interrupt ep %02X", ep);
+        ERROR("error received interrupt packet for non interrupt ep %02X", ep);
         usbredirhost_send_interrupt_status(host, id, interrupt_packet,
                                            usb_redir_inval);
         usbredirparser_free_packet_data(host->parser, data);
@@ -2184,7 +2181,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
     }
 
     if (data_len > host->endpoint[EP2I(ep)].max_packetsize) {
-        ERROR("received interrupt out packet is larger than wMaxPacketSize");
+        ERROR("error received interrupt out packet is larger than wMaxPacketSize");
         usbredirhost_send_interrupt_status(host, id, interrupt_packet,
                                            usb_redir_inval);
         usbredirparser_free_packet_data(host->parser, data);
@@ -2215,7 +2212,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
 
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
-        ERROR("submitting interrupt transfer on ep %02X: %d", ep, r);
+        ERROR("error submitting interrupt transfer on ep %02X: %d", ep, r);
         transfer->transfer->actual_length = 0;
         transfer->transfer->status = r;
         usbredirhost_interrupt_packet_complete(transfer->transfer);

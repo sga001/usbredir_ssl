@@ -76,20 +76,19 @@ static void va_log(struct usbredirparser_priv *parser, int verbose,
 {
     char buf[512];
     va_list ap;
+    int n;
 
+    n = sprintf(buf, "usbredirparser: ");
     va_start(ap, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, ap);
+    vsnprintf(buf + n, sizeof(buf) - n, fmt, ap);
     va_end(ap);
     
     parser->callb.log_func(parser->callb.priv, verbose, buf);
 }
 
-#define ERROR(...)   va_log(parser, usbredirparser_error, \
-                            "usbredirparser error: " __VA_ARGS__)
-#define WARNING(...) va_log(parser, usbredirparser_warning, \
-                            "usbredirparser warning: " __VA_ARGS__)
-#define INFO(...)    va_log(parser, usbredirparser_info, \
-                            "usbredirparser info: " __VA_ARGS__)
+#define ERROR(...)   va_log(parser, usbredirparser_error, __VA_ARGS__)
+#define WARNING(...) va_log(parser, usbredirparser_warning, __VA_ARGS__)
+#define INFO(...)    va_log(parser, usbredirparser_info, __VA_ARGS__)
 
 static void usbredirparser_queue(struct usbredirparser *parser, uint32_t type,
     uint32_t id, void *type_header_in, uint8_t *data_in, int data_len);
@@ -163,7 +162,7 @@ int usbredirparser_peer_has_cap(struct usbredirparser *parser_pub, int cap)
     struct usbredirparser_priv *parser =
         (struct usbredirparser_priv *)parser_pub;
     if (cap / 32 >= USB_REDIR_CAPS_SIZE) {
-        ERROR("request for out of bounds cap: %d", cap);
+        ERROR("error request for out of bounds cap: %d", cap);
         return 0;
     }
     if ((parser->peer_caps[cap / 32]) & (1 << (cap % 32))) {
@@ -439,7 +438,7 @@ static int usbredirparser_verify_type_header(
         struct usb_redir_interface_info_header *intf_info = header;
 
         if (intf_info->interface_count > 32) {
-            ERROR("interface_count > 32");
+            ERROR("error interface_count > 32");
             return 0;
         }
         break;
@@ -449,7 +448,7 @@ static int usbredirparser_verify_type_header(
                                              usb_redir_cap_filter)) ||
             (!send && !usbredirparser_have_cap(parser_pub,
                                              usb_redir_cap_filter))) {
-            ERROR("filter_reject without cap_filter");
+            ERROR("error filter_reject without cap_filter");
             return 0;
         }
         break;
@@ -458,15 +457,15 @@ static int usbredirparser_verify_type_header(
                                              usb_redir_cap_filter)) ||
             (!send && !usbredirparser_have_cap(parser_pub,
                                              usb_redir_cap_filter))) {
-            ERROR("filter_filter without cap_filter");
+            ERROR("error filter_filter without cap_filter");
             return 0;
         }
         if (data_len < 1) {
-            ERROR("filter_filter without data");
+            ERROR("error filter_filter without data");
             return 0;
         }
         if (data[data_len - 1] != 0) {
-            ERROR("non 0 terminated filter_filter data");
+            ERROR("error non 0 terminated filter_filter data");
             return 0;
         }
         break;
@@ -475,7 +474,7 @@ static int usbredirparser_verify_type_header(
                                      usb_redir_cap_device_disconnect_ack)) ||
             (!send && !usbredirparser_have_cap(parser_pub,
                                      usb_redir_cap_device_disconnect_ack))) {
-            ERROR("device_disconnect_ack without cap_device_disconnect_ack");
+            ERROR("error device_disconnect_ack without cap_device_disconnect_ack");
             return 0;
         }
         break;
@@ -504,22 +503,22 @@ static int usbredirparser_verify_type_header(
         }
         if (expect_extra_data) {
             if (data_len != length) {
-                ERROR("data len %d != header len %d ep %02X",
+                ERROR("error data len %d != header len %d ep %02X",
                       data_len, length, ep);
                 return 0;
             }
         } else {
             if (data || data_len) {
-                ERROR("unexpected extra data ep %02X", ep);
+                ERROR("error unexpected extra data ep %02X", ep);
                 return 0;
             }
             switch (type) {
             case usb_redir_iso_packet:
-                ERROR("iso packet send in wrong direction");
+                ERROR("error iso packet send in wrong direction");
                 return 0;
             case usb_redir_interrupt_packet:
                 if (command_for_host) {
-                    ERROR("interrupt packet send in wrong direction");
+                    ERROR("error interrupt packet send in wrong direction");
                     return 0;
                 }
                 break;
@@ -654,7 +653,7 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser_pub)
         r = usbredirfilter_string_to_rules((char *)parser->data, ",", "|",
                                            &rules, &count);
         if (r) {
-            ERROR("parsing filter (5d), ignoring filter message", r);
+            ERROR("error parsing filter (%d), ignoring filter message", r);
             break;
         }
         parser->callb.filter_filter_func(parser->callb.priv, rules, count);
@@ -735,21 +734,21 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
                     usbredirparser_get_type_header_len(parser_pub,
                                                        parser->header.type, 0);
                 if (type_header_len < 0) {
-                    ERROR("invalid usb-redir packet type: %u",
+                    ERROR("error invalid usb-redir packet type: %u",
                           parser->header.type);
                     parser->to_skip = parser->header.length;
                     return -2;
                 }
                 /* This should never happen */
                 if (type_header_len > sizeof(parser->type_header)) {
-                    ERROR("type specific header buffer too small, please report!!");
+                    ERROR("error type specific header buffer too small, please report!!");
                     parser->to_skip = parser->header.length;
                     return -2;
                 }
                 if (parser->header.length < type_header_len ||
                     (parser->header.length > type_header_len &&
                      !usbredirparser_expect_extra_data(parser))) {
-                    ERROR("invalid packet length: %u", parser->header.length);
+                    ERROR("error invalid packet length: %u", parser->header.length);
                     parser->to_skip = parser->header.length;
                     return -2;
                 }
@@ -858,13 +857,13 @@ static void usbredirparser_queue(struct usbredirparser *parser_pub,
 
     type_header_len = usbredirparser_get_type_header_len(parser_pub, type, 1);
     if (type_header_len < 0) { /* This should never happen */
-        ERROR("packet type unknown with internal call, please report!!");
+        ERROR("error packet type unknown with internal call, please report!!");
         return;
     }
 
     if (!usbredirparser_verify_type_header(parser_pub, type, type_header_in,
                                            data_in, data_len, 1)) {
-        ERROR("usbredirparser_send_* call invalid params, please report!!");
+        ERROR("error usbredirparser_send_* call invalid params, please report!!");
         return;
     }
 
@@ -1080,7 +1079,7 @@ void usbredirparser_send_filter_filter(struct usbredirparser *parser_pub,
 
     str = usbredirfilter_rules_to_string(rules, rules_count, ",", "|");
     if (!str) {
-        ERROR("creating filter string, not sending filter");
+        ERROR("error creating filter string, not sending filter");
         return;
     }
     usbredirparser_queue(parser_pub, usb_redir_filter_filter, 0, NULL,
