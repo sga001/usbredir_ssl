@@ -157,6 +157,10 @@ static void run_main_loop(void)
                 break;
             }
         }
+        /* usbredirhost_read_guest_data may have detected client disconnect */
+        if (client_fd == -1)
+            break;
+
         if (FD_ISSET(client_fd, &writefds)) {
             if (usbredirhost_write_guest_data(host)) {
                 break;
