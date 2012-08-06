@@ -703,8 +703,6 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
         if (r <= 0)
             return r;
         parser->to_skip -= r;
-        if (parser->to_skip == 0)
-            parser->header_read = 0;
     }
 
     /* Consume data until read would block or returns an error */
@@ -737,12 +735,14 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
                     ERROR("error invalid usb-redir packet type: %u",
                           parser->header.type);
                     parser->to_skip = parser->header.length;
+                    parser->header_read = 0;
                     return -2;
                 }
                 /* This should never happen */
                 if (type_header_len > sizeof(parser->type_header)) {
                     ERROR("error type specific header buffer too small, please report!!");
                     parser->to_skip = parser->header.length;
+                    parser->header_read = 0;
                     return -2;
                 }
                 if (parser->header.length < type_header_len ||
@@ -750,6 +750,7 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
                      !usbredirparser_expect_extra_data(parser))) {
                     ERROR("error invalid packet length: %u", parser->header.length);
                     parser->to_skip = parser->header.length;
+                    parser->header_read = 0;
                     return -2;
                 }
                 data_len = parser->header.length - type_header_len;
@@ -758,6 +759,7 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
                     if (!parser->data) {
                         ERROR("Out of memory allocating data buffer");
                         parser->to_skip = parser->header.length;
+                        parser->header_read = 0;
                         return -2;
                     }
                 }
