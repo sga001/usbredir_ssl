@@ -89,6 +89,38 @@ static void va_log(struct usbredirparser_priv *parser, int verbose,
 #define ERROR(...)   va_log(parser, usbredirparser_error, __VA_ARGS__)
 #define WARNING(...) va_log(parser, usbredirparser_warning, __VA_ARGS__)
 #define INFO(...)    va_log(parser, usbredirparser_info, __VA_ARGS__)
+#define DEBUG(...)    va_log(parser, usbredirparser_debug, __VA_ARGS__)
+
+#if 0 /* Can be enabled and called from random place to test serialization */
+static void serialize_test(struct usbredirparser *parser_pub)
+{
+    struct usbredirparser_priv *parser =
+        (struct usbredirparser_priv *)parser_pub;
+    struct usbredirparser_buf *wbuf, *next_wbuf;
+    uint8_t *data;
+    int len;
+
+    if (usbredirparser_serialize(parser_pub, &data, &len))
+        return;
+
+    wbuf = parser->write_buf;
+    while (wbuf) {
+        next_wbuf = wbuf->next;
+        free(wbuf->buf);
+        free(wbuf);
+        wbuf = next_wbuf;
+    }
+    parser->write_buf = NULL;
+
+    free(parser->data);
+    parser->data = NULL;
+
+    parser->type_header_len = parser->data_len = parser->have_peer_caps = 0;
+
+    usbredirparser_unserialize(parser_pub, data, len);
+    free(data);
+}
+#endif
 
 static void usbredirparser_queue(struct usbredirparser *parser, uint32_t type,
     uint32_t id, void *type_header_in, uint8_t *data_in, int data_len);
@@ -1124,4 +1156,345 @@ void usbredirparser_send_interrupt_packet(struct usbredirparser *parser,
 {
     usbredirparser_queue(parser, usb_redir_interrupt_packet, id,
                          interrupt_header, data, data_len);
+}
+
+/****** Serialization support ******/
+
+#define USBREDIRPARSER_SERIALIZE_MAGIC        0x55525031
+#define USBREDIRPARSER_SERIALIZE_BUF_SIZE     65536
+
+/* Serialization format, send and receiving endian are expected to be the same!
+    uint32 MAGIC: 0x55525031 ascii: URP1 (UsbRedirParser version 1)
+    uint32 len: length of the entire serialized state, including MAGIC
+    uint32 our_caps_len
+    uint32 our_caps[our_caps_len]
+    uint32 peer_caps_len
+    uint32 peer_caps[peer_caps_len]
+    uint32 to_skip
+    uint32 header_read
+    uint8  header[header_read]
+    uint32 type_header_read
+    uint8  type_header[type_header_read]
+    uint32 data_read
+    uint8  data[data_read]
+    uint32 write_buf_count: followed by write_buf_count times:
+        uint32 write_buf_len
+        uint8  write_buf_data[write_buf_len]
+*/
+
+static int serialize_alloc(struct usbredirparser_priv *parser,
+                           uint8_t **state, uint8_t **pos,
+                           uint32_t *remain, uint32_t needed)
+{
+    uint8_t *old_state = *state;
+    uint32_t used, size;
+
+    if (*remain >= needed)
+        return 0;
+
+    used = *pos - *state;
+    size = (used + needed + USBREDIRPARSER_SERIALIZE_BUF_SIZE - 1) &
+           ~(USBREDIRPARSER_SERIALIZE_BUF_SIZE - 1);
+
+    *state = realloc(*state, size);
+    if (!*state) {
+        free(old_state);
+        ERROR("Out of memory allocating serialization buffer");
+        return -1;
+    }
+
+    *pos = *state + used;
+    *remain = size - used;
+
+    return 0;
+}
+
+static int serialize_int(struct usbredirparser_priv *parser,
+                         uint8_t **state, uint8_t **pos, uint32_t *remain,
+                         uint32_t val, const char *desc)
+{
+    DEBUG("serializing int %08x : %s", val, desc);
+
+    if (serialize_alloc(parser, state, pos, remain, sizeof(uint32_t)))
+        return -1;
+
+    memcpy(*pos, &val, sizeof(uint32_t));
+    *pos += sizeof(uint32_t);
+    *remain -= sizeof(uint32_t);
+
+    return 0;
+}
+
+static int unserialize_int(struct usbredirparser_priv *parser,
+                           uint8_t **pos, uint32_t *remain, uint32_t *val,
+                           const char *desc)
+{
+    if (*remain < sizeof(uint32_t)) {
+        ERROR("error buffer underrun while unserializing state");
+        return -1;
+    }
+    memcpy(val, *pos, sizeof(uint32_t));
+    *pos += sizeof(uint32_t);
+    *remain -= sizeof(uint32_t);
+
+    DEBUG("unserialized int %08x : %s", *val, desc);
+
+    return 0;
+}
+
+static int serialize_data(struct usbredirparser_priv *parser,
+                          uint8_t **state, uint8_t **pos, uint32_t *remain,
+                          uint8_t *data, uint32_t len, const char *desc)
+{
+    DEBUG("serializing %d bytes of %s data", len, desc);
+    if (len >= 4)
+        DEBUG("First 4 bytes of %s: %02x %02x %02x %02x", desc,
+              data[0], data[1], data[2], data[3]);
+
+    if (serialize_alloc(parser, state, pos, remain, sizeof(uint32_t) + len))
+        return -1;
+
+    memcpy(*pos, &len, sizeof(uint32_t));
+    *pos += sizeof(uint32_t);
+    *remain -= sizeof(uint32_t);
+
+    memcpy(*pos, data, len);
+    *pos += len;
+    *remain -= len;
+
+    return 0;
+}
+
+/* If *data == NULL, allocs buffer dynamically, else len_in_out must contain
+   the length of the passed in buffer. */
+static int unserialize_data(struct usbredirparser_priv *parser,
+                            uint8_t **pos, uint32_t *remain,
+                            uint8_t **data, uint32_t *len_in_out,
+                            const char *desc)
+{
+    uint32_t len;
+
+    if (*remain < sizeof(uint32_t)) {
+        ERROR("error buffer underrun while unserializing state");
+        return -1;
+    }
+    memcpy(&len, *pos, sizeof(uint32_t));
+    *pos += sizeof(uint32_t);
+    *remain -= sizeof(uint32_t);
+
+    if (*remain < len) {
+        ERROR("error buffer underrun while unserializing state");
+        return -1;
+    }
+    if (*data == NULL) {
+        *data = malloc(len);
+        if (!*data) {
+            ERROR("Out of memory allocating unserialize buffer");
+            return -1;
+        }
+    } else {
+        if (*len_in_out < len) {
+            ERROR("error buffer overrun while unserializing state");
+            return -1;
+        }
+    }
+
+    memcpy(*data, *pos, len);
+    *pos += len;
+    *remain -= len;
+    *len_in_out = len;
+
+    DEBUG("unserialized %d bytes of %s data", len, desc);
+    if (len >= 4)
+        DEBUG("First 4 bytes of %s: %02x %02x %02x %02x", desc,
+              (*data)[0], (*data)[1], (*data)[2], (*data)[3]);
+
+    return 0;
+}
+
+int usbredirparser_serialize(struct usbredirparser *parser_pub,
+                             uint8_t **state_dest, int *state_len)
+{
+    struct usbredirparser_priv *parser =
+        (struct usbredirparser_priv *)parser_pub;
+    struct usbredirparser_buf *wbuf;
+    uint8_t *write_buf_count_pos, *state = NULL, *pos = NULL;
+    uint32_t write_buf_count = 0, len, remain = 0;
+
+    *state_dest = NULL;
+    *state_len = 0;
+
+    if (serialize_int(parser, &state, &pos, &remain,
+                                   USBREDIRPARSER_SERIALIZE_MAGIC, "magic"))
+        return -1;
+
+    /* To be replaced with length later */
+    if (serialize_int(parser, &state, &pos, &remain, 0, "length"))
+        return -1;
+
+    if (serialize_data(parser, &state, &pos, &remain,
+                       (uint8_t *)parser->our_caps,
+                       USB_REDIR_CAPS_SIZE * sizeof(int32_t), "our_caps"))
+        return -1;
+
+    if (parser->have_peer_caps) {
+        if (serialize_data(parser, &state, &pos, &remain,
+                           (uint8_t *)parser->peer_caps,
+                           USB_REDIR_CAPS_SIZE * sizeof(int32_t), "peer_caps"))
+            return -1;
+    } else {
+        if (serialize_int(parser, &state, &pos, &remain, 0, "peer_caps_len"))
+            return -1;
+    }
+
+    if (serialize_int(parser, &state, &pos, &remain, parser->to_skip, "skip"))
+        return -1;
+
+    if (serialize_data(parser, &state, &pos, &remain,
+                       (uint8_t *)&parser->header, parser->header_read,
+                       "header"))
+        return -1;
+
+    if (serialize_data(parser, &state, &pos, &remain,
+                       parser->type_header, parser->type_header_read,
+                       "type_header"))
+        return -1;
+
+    if (serialize_data(parser, &state, &pos, &remain,
+                       parser->data, parser->data_read, "packet-data"))
+        return -1;
+
+    write_buf_count_pos = pos;
+    /* To be replaced with write_buf_count later */
+    if (serialize_int(parser, &state, &pos, &remain, 0, "write_buf_count"))
+        return -1;
+
+    wbuf = parser->write_buf;
+    while (wbuf) {
+        if (serialize_data(parser, &state, &pos, &remain,
+                           wbuf->buf + wbuf->pos, wbuf->len - wbuf->pos,
+                           "write-buf"))
+            return -1;
+        write_buf_count++;
+        wbuf = wbuf->next;
+    }
+    /* Patch in write_buf_count */
+    memcpy(write_buf_count_pos, &write_buf_count, sizeof(int32_t));
+
+    /* Patch in length */
+    len = pos - state;
+    memcpy(state + sizeof(int32_t), &len, sizeof(int32_t));
+
+    *state_dest = state;
+    *state_len = len;
+
+    return 0;
+}
+
+int usbredirparser_unserialize(struct usbredirparser *parser_pub,
+                               uint8_t *state, int len)
+{
+    struct usbredirparser_priv *parser =
+        (struct usbredirparser_priv *)parser_pub;
+    struct usbredirparser_buf *wbuf, **next;
+    uint32_t orig_caps[USB_REDIR_CAPS_SIZE];
+    uint8_t *data;
+    uint32_t i, l, remain = len;
+
+    if (unserialize_int(parser, &state, &remain, &i, "magic"))
+        return -1;
+    if (i != USBREDIRPARSER_SERIALIZE_MAGIC) {
+        ERROR("error unserialize magic mismatch");
+        return -1;
+    }
+
+    if (unserialize_int(parser, &state, &remain, &i, "length"))
+        return -1;
+    if (i != len) {
+        ERROR("error unserialize length mismatch");
+        return -1;
+    }
+
+    data = (uint8_t *)parser->our_caps;
+    i = USB_REDIR_CAPS_SIZE * sizeof(int32_t);
+    memcpy(orig_caps, parser->our_caps, i);
+    if (unserialize_data(parser, &state, &remain, &data, &i, "our_caps"))
+        return -1;
+    if (memcmp(parser->our_caps, orig_caps,
+               USB_REDIR_CAPS_SIZE * sizeof(int32_t)) != 0) {
+        ERROR("error unserialize caps mismatch");
+        return -1;
+    }
+
+    data = (uint8_t *)parser->peer_caps;
+    i = USB_REDIR_CAPS_SIZE * sizeof(int32_t);
+    if (unserialize_data(parser, &state, &remain, &data, &i, "peer_caps"))
+        return -1;
+    if (i)
+        parser->have_peer_caps = 1;
+
+    if (unserialize_int(parser, &state, &remain, &i, "skip"))
+        return -1;
+    parser->to_skip = i;
+
+    data = (uint8_t *)&parser->header;
+    i = sizeof(parser->header);
+    if (unserialize_data(parser, &state, &remain, &data, &i, "header"))
+        return -1;
+    parser->header_read = i;
+
+    /* Set various length field froms the header (if we've a header) */
+    if (parser->header_read == sizeof(parser->header)) {
+                int type_header_len =
+                    usbredirparser_get_type_header_len(parser_pub,
+                                                       parser->header.type, 0);
+                if (type_header_len < 0 || 
+                    type_header_len > sizeof(parser->type_header) || 
+                    parser->header.length < type_header_len ||
+                    (parser->header.length > type_header_len &&
+                     !usbredirparser_expect_extra_data(parser))) {
+                    ERROR("error unserialize packet header invalid");
+                    return -1;
+                }
+                parser->type_header_len = type_header_len;
+                parser->data_len = parser->header.length - type_header_len;
+    }
+
+    data = parser->type_header;
+    i = parser->type_header_len;
+    if (unserialize_data(parser, &state, &remain, &data, &i, "type_header"))
+        return -1;
+    parser->type_header_read = i;
+
+    if (parser->data_len) {
+        parser->data = malloc(parser->data_len);
+        if (!parser->data) {
+            ERROR("Out of memory allocating unserialize buffer");
+            return -1;
+        }
+    }
+    i = parser->data_len;
+    if (unserialize_data(parser, &state, &remain, &parser->data, &i, "data"))
+        return -1;
+    parser->data_read = i;
+
+    /* Get the write buffer count and the write buffers */
+    if (unserialize_int(parser, &state, &remain, &i, "write_buf_count"))
+        return -1;
+    next = &parser->write_buf;
+    while (i) {
+        wbuf = calloc(1, sizeof(*wbuf));
+        if (!wbuf) {
+            ERROR("Out of memory allocating unserialize buffer");
+            return -1;
+        }
+        *next = wbuf;
+        if (unserialize_data(parser, &state, &remain, &wbuf->buf, &l, "wbuf"))
+            return -1;
+        wbuf->len = l;
+        next = &wbuf->next;
+        i--;
+    }
+
+    return 0;
 }

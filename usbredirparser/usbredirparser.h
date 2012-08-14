@@ -324,4 +324,24 @@ void usbredirparser_send_interrupt_packet(struct usbredirparser *parser,
     struct usb_redir_interrupt_packet_header *interrupt_header,
     uint8_t *data, int data_len);
 
+
+/* Serialization */
+
+/* This function serializes the current usbredirparser state. It will allocate
+   a large enough buffer for this itself and store this in state_dest, it will
+   store the size of this buffer in state_len.
+
+   Return value: 0 on success, -1 on error (out of memory).
+
+   The buffer should be free-ed by the caller using free(). */
+int usbredirparser_serialize(struct usbredirparser *parser,
+                             uint8_t **state_dest, int *state_len);
+
+/* This function sets the current usbredirparser state from a serialized state,
+   this function assumes that the parser is in a clean initialized state.
+
+   Return value: 0 on success, -1 on error (out of memory, or
+                                            invalid state data). */
+int usbredirparser_unserialize(struct usbredirparser *parser_pub,
+                               uint8_t *state, int len);
 #endif
