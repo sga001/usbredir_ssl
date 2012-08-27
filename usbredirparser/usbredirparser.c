@@ -1247,9 +1247,10 @@ static int serialize_data(struct usbredirparser_priv *parser,
                           uint8_t *data, uint32_t len, const char *desc)
 {
     DEBUG("serializing %d bytes of %s data", len, desc);
-    if (len >= 4)
-        DEBUG("First 4 bytes of %s: %02x %02x %02x %02x", desc,
-              data[0], data[1], data[2], data[3]);
+    if (len >= 8)
+        DEBUG("First 8 bytes of %s: %02x %02x %02x %02x %02x %02x %02x %02x",
+              desc, data[0], data[1], data[2], data[3],
+                    data[4], data[5], data[6], data[7]);
 
     if (serialize_alloc(parser, state, pos, remain, sizeof(uint32_t) + len))
         return -1;
@@ -1286,7 +1287,7 @@ static int unserialize_data(struct usbredirparser_priv *parser,
         ERROR("error buffer underrun while unserializing state");
         return -1;
     }
-    if (*data == NULL) {
+    if (*data == NULL && len > 0) {
         *data = malloc(len);
         if (!*data) {
             ERROR("Out of memory allocating unserialize buffer");
@@ -1305,9 +1306,10 @@ static int unserialize_data(struct usbredirparser_priv *parser,
     *len_in_out = len;
 
     DEBUG("unserialized %d bytes of %s data", len, desc);
-    if (len >= 4)
-        DEBUG("First 4 bytes of %s: %02x %02x %02x %02x", desc,
-              (*data)[0], (*data)[1], (*data)[2], (*data)[3]);
+    if (len >= 8)
+        DEBUG("First 8 bytes of %s: %02x %02x %02x %02x %02x %02x %02x %02x",
+              desc, (*data)[0], (*data)[1], (*data)[2], (*data)[3],
+              (*data)[4], (*data)[5], (*data)[6], (*data)[7]);
 
     return 0;
 }
@@ -1489,6 +1491,7 @@ int usbredirparser_unserialize(struct usbredirparser *parser_pub,
             return -1;
         }
         *next = wbuf;
+        l = 0;
         if (unserialize_data(parser, &state, &remain, &wbuf->buf, &l, "wbuf"))
             return -1;
         wbuf->len = l;
