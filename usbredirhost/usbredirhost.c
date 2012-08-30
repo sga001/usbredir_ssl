@@ -824,17 +824,14 @@ static void usbredirhost_add_transfer(struct usbredirhost *host,
     UNLOCK(host);
 }
 
+/* Note caller must hold the host lock */
 static void usbredirhost_remove_and_free_transfer(
     struct usbredirtransfer *transfer)
 {
-    struct usbredirhost *host = transfer->host;
-
-    LOCK(host);
     if (transfer->next)
         transfer->next->prev = transfer->prev;
     if (transfer->prev)
         transfer->prev->next = transfer->next;
-    UNLOCK(host);
     usbredirhost_free_transfer(transfer);
 }
 
@@ -1287,20 +1284,22 @@ static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
     len = libusb_transfer->actual_length;
     DEBUG("interrupt complete ep %02X status %d len %d", ep, status, len);
 
+    LOCK(host);
+
     if (!(ep & LIBUSB_ENDPOINT_IN)) {
         /* Output endpoints are easy */
-        interrupt_packet = transfer->interrupt_packet;
-        interrupt_packet.status = status;
-        interrupt_packet.length = len;
-        usbredirparser_send_interrupt_packet(host->parser, transfer->id,
-                                             &interrupt_packet, NULL, 0);
+        if (!transfer->cancelled) {
+            interrupt_packet = transfer->interrupt_packet;
+            interrupt_packet.status = status;
+            interrupt_packet.length = len;
+            usbredirparser_send_interrupt_packet(host->parser, transfer->id,
+                                                 &interrupt_packet, NULL, 0);
+        }
         usbredirhost_remove_and_free_transfer(transfer);
-        FLUSH(host);
-        return;
+        goto unlock;
     }
 
     /* Everything below is for input endpoints */
-    LOCK(host);
     if (transfer->cancelled) {
         host->cancels_pending--;
         usbredirhost_free_transfer(transfer);
@@ -1762,13 +1761,17 @@ static void usbredirhost_cancel_data_packet(void *priv, uint32_t id)
 {
     struct usbredirhost *host = priv;
     struct usbredirtransfer *t;
+    struct usb_redir_control_packet_header   control_packet;
+    struct usb_redir_bulk_packet_header      bulk_packet;
+    struct usb_redir_interrupt_packet_header interrupt_packet;
 
     /*
      * This is a bit tricky, we are run from a parser read callback, while
      * at the same time the packet completion callback may run from another
      * thread.
      *
-     * Since the completion handler will remove the transter from our list
+     * Since the completion handler will remove the transfer from our list,
+     * send it back to the usb-guest (which we don't want to do twice),
      * and *free* the transfer, we must do the libusb_cancel_transfer()
      * with the lock held to ensure that it is not freed while we try to
      * cancel it.
@@ -1791,7 +1794,31 @@ static void usbredirhost_cancel_data_packet(void *priv, uint32_t id)
      * completed by the time we receive the cancel.
      */
     if (t) {
+        t->cancelled = 1;
         libusb_cancel_transfer(t->transfer);
+        switch(t->transfer->type) {
+        case LIBUSB_TRANSFER_TYPE_CONTROL:
+            control_packet = t->control_packet;
+            control_packet.status = usb_redir_cancelled;
+            control_packet.length = 0;
+            usbredirparser_send_control_packet(host->parser, t->id,
+                                               &control_packet, NULL, 0);
+            break;
+        case LIBUSB_TRANSFER_TYPE_BULK:
+            bulk_packet = t->bulk_packet;
+            bulk_packet.status = usb_redir_cancelled;
+            bulk_packet.length = 0;
+            usbredirparser_send_bulk_packet(host->parser, t->id,
+                                               &bulk_packet, NULL, 0);
+            break;
+        case LIBUSB_TRANSFER_TYPE_INTERRUPT:
+            interrupt_packet = t->interrupt_packet;
+            interrupt_packet.status = usb_redir_cancelled;
+            interrupt_packet.length = 0;
+            usbredirparser_send_interrupt_packet(host->parser, t->id,
+                                                 &interrupt_packet, NULL, 0);
+            break;
+        }
     }
     UNLOCK(host);
 }
@@ -1811,21 +1838,26 @@ static void LIBUSB_CALL usbredirhost_control_packet_complete(
     DEBUG("control complete ep %02X status %d len %d", control_packet.endpoint,
           control_packet.status, control_packet.length);
 
-    if (control_packet.endpoint & LIBUSB_ENDPOINT_IN) {
-        usbredirhost_log_data(host, "ctrl data in:",
+    LOCK(host);
+
+    if (!transfer->cancelled) {
+        if (control_packet.endpoint & LIBUSB_ENDPOINT_IN) {
+            usbredirhost_log_data(host, "ctrl data in:",
                          libusb_transfer->buffer + LIBUSB_CONTROL_SETUP_SIZE,
                          libusb_transfer->actual_length);
-        usbredirparser_send_control_packet(host->parser, transfer->id,
-                                           &control_packet,
-                                           libusb_transfer->buffer +
-                                               LIBUSB_CONTROL_SETUP_SIZE,
-                                           libusb_transfer->actual_length);
-    } else {
-        usbredirparser_send_control_packet(host->parser, transfer->id,
-                                           &control_packet, NULL, 0);
+            usbredirparser_send_control_packet(host->parser, transfer->id,
+                                               &control_packet,
+                                               libusb_transfer->buffer +
+                                                   LIBUSB_CONTROL_SETUP_SIZE,
+                                               libusb_transfer->actual_length);
+        } else {
+            usbredirparser_send_control_packet(host->parser, transfer->id,
+                                               &control_packet, NULL, 0);
+        }
     }
 
     usbredirhost_remove_and_free_transfer(transfer);
+    UNLOCK(host);
     FLUSH(host);
 }
 
@@ -1942,20 +1974,25 @@ static void LIBUSB_CALL usbredirhost_bulk_packet_complete(
     DEBUG("bulk complete ep %02X status %d len %d", bulk_packet.endpoint,
           bulk_packet.status, bulk_packet.length);
 
-    if (bulk_packet.endpoint & LIBUSB_ENDPOINT_IN) {
-        usbredirhost_log_data(host, "bulk data in:",
-                              libusb_transfer->buffer,
-                              libusb_transfer->actual_length);
-        usbredirparser_send_bulk_packet(host->parser, transfer->id,
-                                        &bulk_packet,
-                                        libusb_transfer->buffer,
-                                        libusb_transfer->actual_length);
-    } else {
-        usbredirparser_send_bulk_packet(host->parser, transfer->id,
-                                        &bulk_packet, NULL, 0);
+    LOCK(host);
+
+    if (!transfer->cancelled) {
+        if (bulk_packet.endpoint & LIBUSB_ENDPOINT_IN) {
+            usbredirhost_log_data(host, "bulk data in:",
+                                  libusb_transfer->buffer,
+                                  libusb_transfer->actual_length);
+            usbredirparser_send_bulk_packet(host->parser, transfer->id,
+                                            &bulk_packet,
+                                            libusb_transfer->buffer,
+                                            libusb_transfer->actual_length);
+        } else {
+            usbredirparser_send_bulk_packet(host->parser, transfer->id,
+                                            &bulk_packet, NULL, 0);
+        }
     }
 
     usbredirhost_remove_and_free_transfer(transfer);
+    UNLOCK(host);
     FLUSH(host);
 }
 

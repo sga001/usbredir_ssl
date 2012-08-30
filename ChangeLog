@@ -5,6 +5,7 @@ usbredir-0.5   3 September 2012
  -Add state serialization support
 -usbredirhost:
  -Remove bulk packets time out, this fixes various devices not working
+ -Ack packet cancels immediately
 
 usbredir-0.4.3 2 April 2012
 ---------------------------
