@@ -26,6 +26,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <getopt.h>
+#include <inttypes.h>
 #include <unistd.h>
 #include <errno.h>
 #include <poll.h>
@@ -50,26 +51,26 @@ static void usbredirtestclient_interface_info(void *priv,
     struct usb_redir_interface_info_header *interface_info);
 static void usbredirtestclient_ep_info(void *priv,
     struct usb_redir_ep_info_header *ep_info);
-static void usbredirtestclient_configuration_status(void *priv, uint32_t id,
+static void usbredirtestclient_configuration_status(void *priv, uint64_t id,
     struct usb_redir_configuration_status_header *configuration_status);
-static void usbredirtestclient_alt_setting_status(void *priv, uint32_t id,
+static void usbredirtestclient_alt_setting_status(void *priv, uint64_t id,
     struct usb_redir_alt_setting_status_header *alt_setting_status);
-static void usbredirtestclient_iso_stream_status(void *priv, uint32_t id,
+static void usbredirtestclient_iso_stream_status(void *priv, uint64_t id,
     struct usb_redir_iso_stream_status_header *iso_stream_status);
-static void usbredirtestclient_interrupt_receiving_status(void *priv, uint32_t id,
+static void usbredirtestclient_interrupt_receiving_status(void *priv, uint64_t id,
     struct usb_redir_interrupt_receiving_status_header *interrupt_receiving_status);
-static void usbredirtestclient_bulk_streams_status(void *priv, uint32_t id,
+static void usbredirtestclient_bulk_streams_status(void *priv, uint64_t id,
     struct usb_redir_bulk_streams_status_header *bulk_streams_status);
-static void usbredirtestclient_control_packet(void *priv, uint32_t id,
+static void usbredirtestclient_control_packet(void *priv, uint64_t id,
     struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len);
-static void usbredirtestclient_bulk_packet(void *priv, uint32_t id,
+static void usbredirtestclient_bulk_packet(void *priv, uint64_t id,
     struct usb_redir_bulk_packet_header *bulk_packet,
     uint8_t *data, int data_len);
-static void usbredirtestclient_iso_packet(void *priv, uint32_t id,
+static void usbredirtestclient_iso_packet(void *priv, uint64_t id,
     struct usb_redir_iso_packet_header *iso_packet,
     uint8_t *data, int data_len);
-static void usbredirtestclient_interrupt_packet(void *priv, uint32_t id,
+static void usbredirtestclient_interrupt_packet(void *priv, uint64_t id,
     struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len);
 
@@ -482,7 +483,7 @@ static void usbredirtestclient_ep_info(void *priv,
     }
 }
 
-static void usbredirtestclient_configuration_status(void *priv, uint32_t id,
+static void usbredirtestclient_configuration_status(void *priv, uint64_t id,
     struct usb_redir_configuration_status_header *config_status)
 {
     struct usb_redir_set_configuration_header set_config;
@@ -503,12 +504,12 @@ static void usbredirtestclient_configuration_status(void *priv, uint32_t id,
         usbredirparser_send_get_alt_setting(parser, get_alt_id, &get_alt);
         break;
     default:
-        fprintf(stderr, "Unexpected configuration status packet, id: %d\n",
-                id);
+        fprintf(stderr, "Unexpected configuration status packet, id: %"
+                PRIu64"\n", id);
     }
 }
 
-static void usbredirtestclient_alt_setting_status(void *priv, uint32_t id,
+static void usbredirtestclient_alt_setting_status(void *priv, uint64_t id,
     struct usb_redir_alt_setting_status_header *alt_setting_status)
 {
     struct usb_redir_set_alt_setting_header set_alt;
@@ -530,31 +531,32 @@ static void usbredirtestclient_alt_setting_status(void *priv, uint32_t id,
         usbredirtestclient_cmdline_parse();
         break;
     default:
-        fprintf(stderr, "Unexpected alt status packet, id: %d\n", id);
+        fprintf(stderr, "Unexpected alt status packet, id: %"PRIu64"\n", id);
     }
 }
 
-static void usbredirtestclient_iso_stream_status(void *priv, uint32_t id,
+static void usbredirtestclient_iso_stream_status(void *priv, uint64_t id,
     struct usb_redir_iso_stream_status_header *iso_stream_status)
 {
 }
 
-static void usbredirtestclient_interrupt_receiving_status(void *priv, uint32_t id,
+static void usbredirtestclient_interrupt_receiving_status(void *priv, uint64_t id,
     struct usb_redir_interrupt_receiving_status_header *interrupt_receiving_status)
 {
 }
 
-static void usbredirtestclient_bulk_streams_status(void *priv, uint32_t id,
+static void usbredirtestclient_bulk_streams_status(void *priv, uint64_t id,
     struct usb_redir_bulk_streams_status_header *bulk_streams_status)
 {
 }
 
-static void usbredirtestclient_control_packet(void *priv, uint32_t id,
+static void usbredirtestclient_control_packet(void *priv, uint64_t id,
     struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len)
 {
     int i;
-    printf("Control packet id: %u, status: %d", id, control_packet->status);
+    printf("Control packet id: %"PRIu64", status: %d", id,
+           control_packet->status);
 
     if (data_len) {
         printf(", data:");
@@ -569,19 +571,19 @@ static void usbredirtestclient_control_packet(void *priv, uint32_t id,
     usbredirtestclient_cmdline_parse();
 }
 
-static void usbredirtestclient_bulk_packet(void *priv, uint32_t id,
+static void usbredirtestclient_bulk_packet(void *priv, uint64_t id,
     struct usb_redir_bulk_packet_header *bulk_packet,
     uint8_t *data, int data_len)
 {
 }
 
-static void usbredirtestclient_iso_packet(void *priv, uint32_t id,
+static void usbredirtestclient_iso_packet(void *priv, uint64_t id,
     struct usb_redir_iso_packet_header *iso_packet,
     uint8_t *data, int data_len)
 {
 }
 
-static void usbredirtestclient_interrupt_packet(void *priv, uint32_t id,
+static void usbredirtestclient_interrupt_packet(void *priv, uint64_t id,
     struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len)
 {

@@ -26,6 +26,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <inttypes.h>
 #include "usbredirhost.h"
 
 #define MAX_ENDPOINTS        32
@@ -66,7 +67,7 @@
 struct usbredirtransfer {
     struct usbredirhost *host;        /* Back pointer to the the redirhost */
     struct libusb_transfer *transfer; /* Back pointer to the libusb transfer */
-    uint32_t id;
+    uint64_t id;
     uint8_t cancelled;
     int iso_packet_idx;
     union {
@@ -125,8 +126,11 @@ struct usbredirhost {
     int filter_rules_count;
 };
 
-static void va_log(struct usbredirhost *host, int level,
-    const char *fmt, ...)
+static void
+#if defined __GNUC__
+__attribute__((format(printf, 3, 4)))
+#endif
+va_log(struct usbredirhost *host, int level, const char *fmt, ...)
 {
     char buf[512];
     va_list ap;
@@ -154,40 +158,40 @@ static void va_log(struct usbredirhost *host, int level,
 
 static void usbredirhost_hello(void *priv, struct usb_redir_hello_header *h);
 static void usbredirhost_reset(void *priv);
-static void usbredirhost_set_configuration(void *priv, uint32_t id,
+static void usbredirhost_set_configuration(void *priv, uint64_t id,
     struct usb_redir_set_configuration_header *set_configuration);
-static void usbredirhost_get_configuration(void *priv, uint32_t id);
-static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
+static void usbredirhost_get_configuration(void *priv, uint64_t id);
+static void usbredirhost_set_alt_setting(void *priv, uint64_t id,
     struct usb_redir_set_alt_setting_header *set_alt_setting);
-static void usbredirhost_get_alt_setting(void *priv, uint32_t id,
+static void usbredirhost_get_alt_setting(void *priv, uint64_t id,
     struct usb_redir_get_alt_setting_header *get_alt_setting);
-static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
+static void usbredirhost_start_iso_stream(void *priv, uint64_t id,
     struct usb_redir_start_iso_stream_header *start_iso_stream);
-static void usbredirhost_stop_iso_stream(void *priv, uint32_t id,
+static void usbredirhost_stop_iso_stream(void *priv, uint64_t id,
     struct usb_redir_stop_iso_stream_header *stop_iso_stream);
-static void usbredirhost_start_interrupt_receiving(void *priv, uint32_t id,
+static void usbredirhost_start_interrupt_receiving(void *priv, uint64_t id,
     struct usb_redir_start_interrupt_receiving_header *start_interrupt_receiving);
-static void usbredirhost_stop_interrupt_receiving(void *priv, uint32_t id,
+static void usbredirhost_stop_interrupt_receiving(void *priv, uint64_t id,
     struct usb_redir_stop_interrupt_receiving_header *stop_interrupt_receiving);
-static void usbredirhost_alloc_bulk_streams(void *priv, uint32_t id,
+static void usbredirhost_alloc_bulk_streams(void *priv, uint64_t id,
     struct usb_redir_alloc_bulk_streams_header *alloc_bulk_streams);
-static void usbredirhost_free_bulk_streams(void *priv, uint32_t id,
+static void usbredirhost_free_bulk_streams(void *priv, uint64_t id,
     struct usb_redir_free_bulk_streams_header *free_bulk_streams);
-static void usbredirhost_cancel_data_packet(void *priv, uint32_t id);
+static void usbredirhost_cancel_data_packet(void *priv, uint64_t id);
 static void usbredirhost_filter_reject(void *priv);
 static void usbredirhost_filter_filter(void *priv,
     struct usbredirfilter_rule *rules, int rules_count);
 static void usbredirhost_device_disconnect_ack(void *priv);
-static void usbredirhost_control_packet(void *priv, uint32_t id,
+static void usbredirhost_control_packet(void *priv, uint64_t id,
     struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len);
-static void usbredirhost_bulk_packet(void *priv, uint32_t id,
+static void usbredirhost_bulk_packet(void *priv, uint64_t id,
     struct usb_redir_bulk_packet_header *bulk_packet,
     uint8_t *data, int data_len);
-static void usbredirhost_iso_packet(void *priv, uint32_t id,
+static void usbredirhost_iso_packet(void *priv, uint64_t id,
     struct usb_redir_iso_packet_header *iso_packet,
     uint8_t *data, int data_len);
-static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
+static void usbredirhost_interrupt_packet(void *priv, uint64_t id,
     struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len);
 
@@ -651,6 +655,7 @@ struct usbredirhost *usbredirhost_open_full(
     usbredirparser_caps_set_cap(caps, usb_redir_cap_filter);
     usbredirparser_caps_set_cap(caps, usb_redir_cap_device_disconnect_ack);
     usbredirparser_caps_set_cap(caps, usb_redir_cap_ep_info_max_packet_size);
+    usbredirparser_caps_set_cap(caps, usb_redir_cap_64bits_ids);
 
     usbredirparser_init(host->parser, version, caps, USB_REDIR_CAPS_SIZE,
                         parser_flags);
@@ -935,7 +940,7 @@ static void usbredirhost_log_data(struct usbredirhost *host, const char *desc,
 /**************************************************************************/
 
 static void usbredirhost_send_iso_status(struct usbredirhost *host,
-    uint32_t id, uint8_t endpoint, uint8_t status)
+    uint64_t id, uint8_t endpoint, uint8_t status)
 {
     struct usb_redir_iso_stream_status_header iso_stream_status;
 
@@ -970,7 +975,7 @@ static int usbredirhost_submit_iso_transfer_unlocked(struct usbredirhost *host,
    Note in the case of a return value of 2 this function takes care of
    sending an iso status message to the usb-guest. */
 static int usbredirhost_handle_iso_status(struct usbredirhost *host,
-    uint32_t id, uint8_t ep, int r)
+    uint64_t id, uint8_t ep, int r)
 {
     int i, status;
 
@@ -1107,7 +1112,7 @@ static void LIBUSB_CALL usbredirhost_iso_packet_complete(
                            len);
             transfer->id++;
         } else {
-            DEBUG("iso-in complete ep %02X pkt %d len %d id %d",
+            DEBUG("iso-in complete ep %02X pkt %d len %d id %"PRIu64,
                   ep, i, len, transfer->id);
         }
     }
@@ -1243,7 +1248,7 @@ static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
 /**************************************************************************/
 
 static void usbredirhost_send_interrupt_recv_status(struct usbredirhost *host,
-    uint32_t id, uint8_t endpoint, uint8_t status)
+    uint64_t id, uint8_t endpoint, uint8_t status)
 {
     struct usb_redir_interrupt_receiving_status_header interrupt_status;
 
@@ -1434,7 +1439,7 @@ static void usbredirhost_reset(void *priv)
     }
 }
 
-static void usbredirhost_set_configuration(void *priv, uint32_t id,
+static void usbredirhost_set_configuration(void *priv, uint64_t id,
     struct usb_redir_set_configuration_header *set_config)
 {
     struct usbredirhost *host = priv;
@@ -1481,7 +1486,7 @@ exit:
     FLUSH(host);
 }
 
-static void usbredirhost_get_configuration(void *priv, uint32_t id)
+static void usbredirhost_get_configuration(void *priv, uint64_t id)
 {
     struct usbredirhost *host = priv;
     struct usb_redir_configuration_status_header status;
@@ -1495,7 +1500,7 @@ static void usbredirhost_get_configuration(void *priv, uint32_t id)
     FLUSH(host);
 }
 
-static void usbredirhost_set_alt_setting(void *priv, uint32_t id,
+static void usbredirhost_set_alt_setting(void *priv, uint64_t id,
     struct usb_redir_set_alt_setting_header *set_alt_setting)
 {
     struct usbredirhost *host = priv;
@@ -1560,7 +1565,7 @@ exit_unknown_interface:
     FLUSH(host);
 }
 
-static void usbredirhost_get_alt_setting(void *priv, uint32_t id,
+static void usbredirhost_get_alt_setting(void *priv, uint64_t id,
     struct usb_redir_get_alt_setting_header *get_alt_setting)
 {
     struct usbredirhost *host = priv;
@@ -1589,7 +1594,7 @@ exit:
     FLUSH(host);
 }
 
-static void usbredirhost_start_iso_stream(void *priv, uint32_t id,
+static void usbredirhost_start_iso_stream(void *priv, uint64_t id,
     struct usb_redir_start_iso_stream_header *start_iso_stream)
 {
     struct usbredirhost *host = priv;
@@ -1632,7 +1637,7 @@ leave:
     FLUSH(host);
 }
 
-static void usbredirhost_stop_iso_stream(void *priv, uint32_t id,
+static void usbredirhost_stop_iso_stream(void *priv, uint64_t id,
     struct usb_redir_stop_iso_stream_header *stop_iso_stream)
 {
     struct usbredirhost *host = priv;
@@ -1651,7 +1656,7 @@ exit:
     FLUSH(host);
 }
 
-static void usbredirhost_start_interrupt_receiving(void *priv, uint32_t id,
+static void usbredirhost_start_interrupt_receiving(void *priv, uint64_t id,
     struct usb_redir_start_interrupt_receiving_header *start_interrupt_receiving)
 {
     struct usbredirhost *host = priv;
@@ -1686,7 +1691,7 @@ leave:
     FLUSH(host);
 }
 
-static void usbredirhost_stop_interrupt_receiving(void *priv, uint32_t id,
+static void usbredirhost_stop_interrupt_receiving(void *priv, uint64_t id,
     struct usb_redir_stop_interrupt_receiving_header *stop_interrupt_receiving)
 {
     struct usbredirhost *host = priv;
@@ -1707,13 +1712,13 @@ exit:
     FLUSH(host);
 }
 
-static void usbredirhost_alloc_bulk_streams(void *priv, uint32_t id,
+static void usbredirhost_alloc_bulk_streams(void *priv, uint64_t id,
     struct usb_redir_alloc_bulk_streams_header *alloc_bulk_streams)
 {
     /* struct usbredirhost *host = priv; */
 }
 
-static void usbredirhost_free_bulk_streams(void *priv, uint32_t id,
+static void usbredirhost_free_bulk_streams(void *priv, uint64_t id,
     struct usb_redir_free_bulk_streams_header *free_bulk_streams)
 {
     /* struct usbredirhost *host = priv; */
@@ -1757,7 +1762,7 @@ static void usbredirhost_device_disconnect_ack(void *priv)
 
 /**************************************************************************/
 
-static void usbredirhost_cancel_data_packet(void *priv, uint32_t id)
+static void usbredirhost_cancel_data_packet(void *priv, uint64_t id)
 {
     struct usbredirhost *host = priv;
     struct usbredirtransfer *t;
@@ -1862,7 +1867,7 @@ static void LIBUSB_CALL usbredirhost_control_packet_complete(
 }
 
 static void usbredirhost_send_control_status(struct usbredirhost *host,
-    uint32_t id, struct usb_redir_control_packet_header *control_packet,
+    uint64_t id, struct usb_redir_control_packet_header *control_packet,
     uint8_t status)
 {
     control_packet->status = status;
@@ -1871,7 +1876,7 @@ static void usbredirhost_send_control_status(struct usbredirhost *host,
                                        NULL, 0);
 }
 
-static void usbredirhost_control_packet(void *priv, uint32_t id,
+static void usbredirhost_control_packet(void *priv, uint64_t id,
     struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len)
 {
@@ -1997,7 +2002,7 @@ static void LIBUSB_CALL usbredirhost_bulk_packet_complete(
 }
 
 static void usbredirhost_send_bulk_status(struct usbredirhost *host,
-    uint32_t id, struct usb_redir_bulk_packet_header *bulk_packet,
+    uint64_t id, struct usb_redir_bulk_packet_header *bulk_packet,
     uint8_t status)
 {
     bulk_packet->status = status;
@@ -2005,7 +2010,7 @@ static void usbredirhost_send_bulk_status(struct usbredirhost *host,
     usbredirparser_send_bulk_packet(host->parser, id, bulk_packet, NULL, 0);
 }
 
-static void usbredirhost_bulk_packet(void *priv, uint32_t id,
+static void usbredirhost_bulk_packet(void *priv, uint64_t id,
     struct usb_redir_bulk_packet_header *bulk_packet,
     uint8_t *data, int data_len)
 {
@@ -2070,7 +2075,7 @@ static void usbredirhost_bulk_packet(void *priv, uint32_t id,
     }
 }
 
-static void usbredirhost_iso_packet(void *priv, uint32_t id,
+static void usbredirhost_iso_packet(void *priv, uint64_t id,
     struct usb_redir_iso_packet_header *iso_packet,
     uint8_t *data, int data_len)
 {
@@ -2129,7 +2134,7 @@ static void usbredirhost_iso_packet(void *priv, uint32_t id,
     memcpy(libusb_get_iso_packet_buffer(transfer->transfer, j),
            data, data_len);
     transfer->transfer->iso_packet_desc[j].length = data_len;
-    DEBUG("iso-in queue ep %02X urb %d pkt %d len %d id %d",
+    DEBUG("iso-in queue ep %02X urb %d pkt %d len %d id %"PRIu64,
            ep, i, j, data_len, transfer->id);
 
     j++;
@@ -2180,7 +2185,7 @@ leave:
 }
 
 static void usbredirhost_send_interrupt_status(struct usbredirhost *host,
-    uint32_t id, struct usb_redir_interrupt_packet_header *interrupt_packet,
+    uint64_t id, struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t status)
 {
     interrupt_packet->status = status;
@@ -2189,7 +2194,7 @@ static void usbredirhost_send_interrupt_status(struct usbredirhost *host,
                                          NULL, 0);
 }
 
-static void usbredirhost_interrupt_packet(void *priv, uint32_t id,
+static void usbredirhost_interrupt_packet(void *priv, uint64_t id,
     struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len)
 {
