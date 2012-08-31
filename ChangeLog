@@ -10,6 +10,7 @@ usbredir-0.5   3 September 2012
  -Remove bulk packets time out, this fixes various devices not working
  -Ack packet cancels immediately
  -Now supports 64 bits packet ids
+ -Use libusb_error_name instead of logging raw error codes
 
 usbredir-0.4.3 2 April 2012
 ---------------------------

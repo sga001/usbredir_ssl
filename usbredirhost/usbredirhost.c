@@ -442,13 +442,14 @@ static int usbredirhost_claim(struct usbredirhost *host, int initial_claim)
 
     r = libusb_get_device_descriptor(host->dev, &host->desc);
     if (r < 0) {
-        ERROR("could not get device descriptor: %d", r);
+        ERROR("could not get device descriptor: %s", libusb_error_name(r));
         return libusb_status_or_error_to_redir_status(host, r);
     }
 
     r = libusb_get_active_config_descriptor(host->dev, &host->config);
     if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND) {
-        ERROR("could not get descriptors for active configuration: %d", r);
+        ERROR("could not get descriptors for active configuration: %s",
+              libusb_error_name(r));
         return libusb_status_or_error_to_redir_status(host, r);
     }
     if (host->config && host->config->bNumInterfaces > MAX_INTERFACES) {
@@ -488,8 +489,8 @@ static int usbredirhost_claim(struct usbredirhost *host, int initial_claim)
         r = libusb_detach_kernel_driver(host->handle, n);
         if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND
                   && r != LIBUSB_ERROR_NOT_SUPPORTED) {
-            ERROR("could not detach driver from interface %d (configuration %d): %d",
-                  n, host->config->bConfigurationValue, r);
+            ERROR("could not detach driver from interface %d (configuration %d): %s",
+                  n, host->config->bConfigurationValue, libusb_error_name(r));
             return libusb_status_or_error_to_redir_status(host, r);
         }
 
@@ -498,8 +499,9 @@ static int usbredirhost_claim(struct usbredirhost *host, int initial_claim)
             if (r == LIBUSB_ERROR_BUSY)
                 ERROR("Device is in use by another application");
             else
-                ERROR("could not claim interface %d (configuration %d): %d",
-                      n, host->config->bConfigurationValue, r);
+                ERROR("could not claim interface %d (configuration %d): %s",
+                      n, host->config->bConfigurationValue,
+                      libusb_error_name(r));
             return libusb_status_or_error_to_redir_status(host, r);
         }
     }
@@ -522,8 +524,8 @@ static void usbredirhost_release(struct usbredirhost *host, int attach_drivers)
         r = libusb_release_interface(host->handle, n);
         if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND
                   && r != LIBUSB_ERROR_NO_DEVICE) {
-            ERROR("could not release interface %d (configuration %d): %d",
-                  n, host->config->bConfigurationValue, r);
+            ERROR("could not release interface %d (configuration %d): %s",
+                  n, host->config->bConfigurationValue, libusb_error_name(r));
         }
     }
 
@@ -538,8 +540,8 @@ static void usbredirhost_release(struct usbredirhost *host, int attach_drivers)
     if (current_config != host->restore_config) {
         r = libusb_set_configuration(host->handle, host->restore_config);
         if (r < 0)
-            ERROR("could not restore configuration to %d: %d",
-                  host->restore_config, r);
+            ERROR("could not restore configuration to %d: %s",
+                  host->restore_config, libusb_error_name(r));
         return; /* set_config automatically binds drivers for the new config */
     }
 
@@ -550,8 +552,8 @@ static void usbredirhost_release(struct usbredirhost *host, int attach_drivers)
                   && r != LIBUSB_ERROR_NO_DEVICE /* Device unplugged */
                   && r != LIBUSB_ERROR_NOT_SUPPORTED /* Not supported */
                   && r != LIBUSB_ERROR_BUSY /* driver rebound already */) {
-            ERROR("could not re-attach driver to interface %d (configuration %d): %d",
-                  n, host->config->bConfigurationValue, r);
+            ERROR("could not re-attach driver to interface %d (configuration %d): %s",
+                  n, host->config->bConfigurationValue, libusb_error_name(r));
         }
     }
 }
@@ -712,7 +714,7 @@ int usbredirhost_set_device(struct usbredirhost *host,
        so lets do that before hand */
     r = libusb_reset_device(host->handle);
     if (r != 0) {
-        ERROR("error resetting device: %d", r);
+        ERROR("error resetting device: %s", libusb_error_name(r));
         usbredirhost_clear_device(host);
         return libusb_status_or_error_to_redir_status(host, r);
     }
@@ -958,8 +960,8 @@ static int usbredirhost_submit_iso_transfer_unlocked(struct usbredirhost *host,
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
         uint8_t ep = transfer->transfer->endpoint;
-        ERROR("error submitting iso transfer on ep %02X: %d, stopping stream",
-              (unsigned int)ep, r);
+        ERROR("error submitting iso transfer on ep %02X: %s, stopping stream",
+              ep, libusb_error_name(r));
         usbredirhost_cancel_iso_stream_unlocked(host, ep);
         return libusb_status_or_error_to_redir_status(host, r);
     }
@@ -1031,7 +1033,8 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
     case LIBUSB_TRANSFER_ERROR:
     case LIBUSB_TRANSFER_TIMED_OUT:
     default:
-        ERROR("iso stream error on endpoint %02X: %d", (unsigned int)ep, r);
+        ERROR("iso stream error on endpoint %02X: %s", ep,
+              libusb_error_name(r));
         return 1;
     }
 }
@@ -1267,7 +1270,8 @@ static int usbredirhost_submit_interrupt_in_transfer(struct usbredirhost *host,
     transfer = host->endpoint[EP2I(ep)].interrupt_in_transfer;
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
-        ERROR("error submitting interrupt transfer on ep %02X: %d", ep, r);
+        ERROR("error submitting interrupt transfer on ep %02X: %s", ep,
+              libusb_error_name(r));
         usbredirhost_free_transfer(transfer);
         host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
         return usb_redir_stall;
@@ -1336,7 +1340,8 @@ static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
         host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
         goto unlock;
     default:
-        ERROR("interrupt in error on endpoint %02X: %d", ep, r);
+        ERROR("interrupt in error on endpoint %02X: %s",
+              ep, libusb_error_name(r));
         len = 0;
     }
 
@@ -1433,7 +1438,7 @@ static void usbredirhost_reset(void *priv)
     if (r == 0) {
         host->reset = 1;
     } else {
-        ERROR("error resetting device: %d", r);
+        ERROR("error resetting device: %s", libusb_error_name(r));
         usbredirhost_clear_device(host);
         host->read_status = usbredirhost_read_device_lost;
     }
@@ -1465,8 +1470,8 @@ static void usbredirhost_set_configuration(void *priv, uint64_t id,
 
     r = libusb_set_configuration(host->handle, set_config->configuration);
     if (r < 0) {
-        ERROR("could not set active configuration to %d: %d",
-              (int)set_config->configuration, r);
+        ERROR("could not set active configuration to %d: %s",
+              (int)set_config->configuration, libusb_error_name(r));
         status.status = usb_redir_ioerror;
     }
 
@@ -1531,8 +1536,9 @@ static void usbredirhost_set_alt_setting(void *priv, uint64_t id,
                                          set_alt_setting->interface,
                                          set_alt_setting->alt);
     if (r < 0) {
-        ERROR("could not set alt setting for interface %d to %d: %d",
-              (int)set_alt_setting->interface, (int)set_alt_setting->alt, r);
+        ERROR("could not set alt setting for interface %d to %d: %s",
+              set_alt_setting->interface, set_alt_setting->alt,
+              libusb_error_name(r));
         status.status = libusb_status_or_error_to_redir_status(host, r);
         goto exit;
     }
@@ -1957,7 +1963,8 @@ static void usbredirhost_control_packet(void *priv, uint64_t id,
 
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
-        ERROR("error submitting control transfer on ep %02X: %d", ep, r);
+        ERROR("error submitting control transfer on ep %02X: %s",
+              ep, libusb_error_name(r));
         transfer->transfer->actual_length = 0;
         transfer->transfer->status = r;
         usbredirhost_control_packet_complete(transfer->transfer);
@@ -2068,7 +2075,8 @@ static void usbredirhost_bulk_packet(void *priv, uint64_t id,
 
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
-        ERROR("error submitting bulk transfer on ep %02X: %d", ep, r);
+        ERROR("error submitting bulk transfer on ep %02X: %s",
+              ep, libusb_error_name(r));
         transfer->transfer->actual_length = 0;
         transfer->transfer->status = r;
         usbredirhost_bulk_packet_complete(transfer->transfer);
@@ -2254,7 +2262,8 @@ static void usbredirhost_interrupt_packet(void *priv, uint64_t id,
 
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
-        ERROR("error submitting interrupt transfer on ep %02X: %d", ep, r);
+        ERROR("error submitting interrupt transfer on ep %02X: %s",
+              ep, libusb_error_name(r));
         transfer->transfer->actual_length = 0;
         transfer->transfer->status = r;
         usbredirhost_interrupt_packet_complete(transfer->transfer);
