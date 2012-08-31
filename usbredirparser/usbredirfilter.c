@@ -161,7 +161,7 @@ static int usbredirfilter_check1(const struct usbredirfilter_rule *rules,
         }
     }
 
-    return default_allow ? 0 : -EPERM;
+    return default_allow ? 0 : -ENOENT;
 }
 
 int usbredirfilter_check(

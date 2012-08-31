@@ -11,6 +11,9 @@ usbredir-0.5   3 September 2012
  -Ack packet cancels immediately
  -Now supports 64 bits packet ids
  -Use libusb_error_name instead of logging raw error codes
+-usbredirfilter_check return -ENOENT rather then -EPERM if no rules match a
+ device, this way the caller can differentiate between a deny caused by a
+ matching rule, and one caused by there being no matching rules.
 
 usbredir-0.4.3 2 April 2012
 ---------------------------

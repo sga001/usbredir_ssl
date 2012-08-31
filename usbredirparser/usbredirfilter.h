@@ -76,11 +76,10 @@ char *usbredirfilter_rules_to_string(const struct usbredirfilter_rule *rules,
 
    First the rules are checked one by one against the given device info using
    the device class info, if a matching rule is found, the result of the check
-   is that of that rule. If the result is deny, -EPERM will be returned.
+   is that of that rule.
 
-   Then the same is done substituting the device class info with the class info
-   from the interfaces. If any of the interfaces class checks result in a deny,
-   then -EPERM will be returned.
+   Then the same is done for each interface the device has, substituting the
+   device class info with the class info from the interfaces.
 
    Note that under certain circumstances some passes are skipped:
    - For devices with a device class of 0x00 or 0xef, the pass which checks the
@@ -94,12 +93,19 @@ char *usbredirfilter_rules_to_string(const struct usbredirfilter_rule *rules,
    If the result of all (not skipped) passes is allow, then 0 will be returned,
    which indicates that redirection should be allowed.
 
-   If a given pass does not match any rules the result of that pass will be
-   deny. This behavior can be changed with the usbredirfilter_fl_default_allow
-   flag, if this flas is set the result on no matching rules will be allow.
+   If the result of a matching rule is deny, then processing stops and
+   -EPERM will be returned.
 
-   Return value: 0 when redirection is allowed, -EINVAL for invalid parameters,
-      -EPERM when redirection is blocked by the filter rules.
+   If a given pass does not match any rules, then processing stops and
+   -EPERM will be returned. This behavior can be changed with the
+   usbredirfilter_fl_default_allow flag, if this flas is set the result of a
+   pass with no matching rules will be allow.
+
+   Return value:
+    0        Redirection is allowed
+    -EINVAL  Invalid parameters
+    -EPERM   Redirection is blocked by the filter rules
+    -ENOENT  None of the rules matched the device (during one of the passes)
 */
 enum {
     usbredirfilter_fl_default_allow = 0x01,
