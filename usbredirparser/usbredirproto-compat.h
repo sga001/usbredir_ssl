@@ -51,7 +51,7 @@ struct usb_redir_device_connect_header_no_device_version {
     uint16_t product_id;
 } ATTR_PACKED;
 
-struct usb_redir_ep_info_header_no_max_pktsz_version {
+struct usb_redir_ep_info_header_no_max_pktsz {
     uint8_t type[32];
     uint8_t interval[32];
     uint8_t interface[32];

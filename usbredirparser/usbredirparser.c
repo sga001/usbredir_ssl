@@ -303,7 +303,7 @@ static int usbredirparser_get_type_header_len(
                                     usb_redir_cap_ep_info_max_packet_size)) {
                 return sizeof(struct usb_redir_ep_info_header);
             } else {
-                return sizeof(struct usb_redir_ep_info_header_no_max_pktsz_version);
+                return sizeof(struct usb_redir_ep_info_header_no_max_pktsz);
             }
         } else {
             return -1;
