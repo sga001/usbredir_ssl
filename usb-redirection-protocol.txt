@@ -62,14 +62,18 @@ Version 0.4,   released 22 February 2012
 Version 0.4.1, released 25 February 2012
 - No protocol changes
 
-Version 0.4.2, released 6 March 2012
+Version 0.4.2, released  6 March 2012
 - Add usb_redir_babble status code
 - The usb_redir_ep_info_header has been extended with a max_packet_size field
   This is only send / received if both sides have the
   usb_redir_cap_ep_info_max_packet_size capability
 
-USB redirerection protocol version 0.4.2
-----------------------------------------
+Version 0.5,   released  3 September 2012
+- Add the posibility to use 64 bits packet ids
+
+
+USB redirerection protocol version 0.5
+--------------------------------------
 
 The protocol described in this document is meant for tunneling usb transfers
 to a single usb device. Note: not an entire hub, only a single device.
@@ -108,6 +112,15 @@ struct usb_redir_header {
     uint32_t type;
     uint32_t length;
     uint32_t id;
+}
+
+Or, if both sides have the usb_redir_cap_64bits_ids capability, it looks as
+follows!  :
+
+struct usb_redir_header {
+    uint32_t type;
+    uint32_t length;
+    uint64_t id;
 }
 
 type:    This identifies the type of packet, from the type enum
@@ -206,11 +219,15 @@ struct usb_redir_hello_header {
 No packet type specific additional data.
 
 A packet of this type is send by both sides as soon as a connection is
-establised. This packet contains:
+establised. It is mandatory that this packet is the first packet send by
+both sides! This packet contains:
 version:       A free form 0 terminated version string, useful for logging
                should not be parsed! Suggested format: "qemu 0.13",
                "usb-redir-daemon 0.1", etc.
 capabilities:  A variable length array for announcing capabilities.
+
+Note that since the peer caps are not known until the usb_redir_hello
+packet is received, the hello packet always has 32 bits id fields!
 
 The value of the length field depends on the size of the capabilities array.
 If we cross the 32 capabilities count, it will go from 1 uint32_t to 2,
@@ -229,6 +246,8 @@ enum {
     usb_redir_cap_device_disconnect_ack,
     /* The ep_info packet has the max_packet_size field */
     usb_redir_cap_ep_info_max_packet_size,
+    /* Supports 64 bits ids in usb_redir_header */
+    usb_redir_cap_64bits_ids,
 };
 
 usb_redir_device_connect

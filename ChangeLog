@@ -1,6 +1,7 @@
 usbredir-0.5   3 September 2012
 -------------------------------
 -Windows support 
+-Add support for 64 bit packet ids
 -usbredirparser:
  -Add state serialization support
 -usbredirhost:

@@ -59,7 +59,10 @@ struct usbredirparser_priv {
 
     void *lock;
 
-    struct usb_redir_header header;
+    union {
+        struct usb_redir_header header;
+        struct usb_redir_header_32bit_id header_32bit_id;
+    };
     uint8_t type_header[256];
     int header_read;
     int type_header_len;
@@ -215,12 +218,20 @@ int usbredirparser_have_cap(struct usbredirparser *parser_pub, int cap)
     }
 }
 
-static void usbredirparser_handle_hello(struct usbredirparser_priv *parser,
+static int usbredirparser_using_32bits_ids(struct usbredirparser *parser_pub)
+{
+    return !usbredirparser_have_cap(parser_pub, usb_redir_cap_64bits_ids) ||
+           !usbredirparser_peer_has_cap(parser_pub, usb_redir_cap_64bits_ids);
+}
+
+static void usbredirparser_handle_hello(struct usbredirparser *parser_pub,
     struct usb_redir_hello_header *hello, uint8_t *data, int data_len)
 {
-    int i;
-    char buf[64];
+    struct usbredirparser_priv *parser =
+        (struct usbredirparser_priv *)parser_pub;
     uint32_t *peer_caps = (uint32_t *)data;
+    char buf[64];
+    int i;
 
     if (parser->have_peer_caps) {
         ERROR("Received second hello message, ignoring");
@@ -230,7 +241,6 @@ static void usbredirparser_handle_hello(struct usbredirparser_priv *parser,
     /* In case hello->version is not 0 terminated (which would be a protocol
        violation)_ */
     snprintf(buf, sizeof(buf), "%s", hello->version);
-    INFO("Peer version: %s", buf);
 
     memset(parser->peer_caps, 0, sizeof(parser->peer_caps));
     if (data_len > sizeof(parser->peer_caps)) {
@@ -242,9 +252,20 @@ static void usbredirparser_handle_hello(struct usbredirparser_priv *parser,
     parser->have_peer_caps = 1;
     free(data);
 
+    INFO("Peer version: %s, using %d-bits ids", buf,
+         usbredirparser_using_32bits_ids(parser_pub) ? 32 : 64);
+
     /* Added in 0.3.2, so no guarantee it is there */
     if (parser->callb.hello_func)
         parser->callb.hello_func(parser->callb.priv, hello);
+}
+
+static int usbredirparser_get_header_len(struct usbredirparser *parser_pub)
+{
+    if (usbredirparser_using_32bits_ids(parser_pub))
+        return sizeof(struct usb_redir_header_32bit_id);
+    else
+        return sizeof(struct usb_redir_header);
 }
 
 static int usbredirparser_get_type_header_len(
@@ -565,10 +586,16 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser_pub)
 {
     struct usbredirparser_priv *parser =
         (struct usbredirparser_priv *)parser_pub;
+    uint64_t id;
+
+    if (usbredirparser_using_32bits_ids(parser_pub))
+        id = parser->header_32bit_id.id;
+    else
+        id = parser->header.id;
 
     switch (parser->header.type) {
     case usb_redir_hello:
-        usbredirparser_handle_hello(parser,
+        usbredirparser_handle_hello(parser_pub,
             (struct usb_redir_hello_header *)parser->type_header,
             parser->data, parser->data_len);
         break;
@@ -595,85 +622,69 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser_pub)
             (struct usb_redir_ep_info_header *)parser->type_header);
         break;
     case usb_redir_set_configuration:
-        parser->callb.set_configuration_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.set_configuration_func(parser->callb.priv, id,
             (struct usb_redir_set_configuration_header *)parser->type_header);
         break;
     case usb_redir_get_configuration:
-        parser->callb.get_configuration_func(parser->callb.priv,
-            parser->header.id);
+        parser->callb.get_configuration_func(parser->callb.priv, id);
         break;
     case usb_redir_configuration_status:
-        parser->callb.configuration_status_func(parser->callb.priv,
-            parser->header.id, (struct usb_redir_configuration_status_header *)
-            parser->type_header);
+        parser->callb.configuration_status_func(parser->callb.priv, id,
+          (struct usb_redir_configuration_status_header *)parser->type_header);
         break;
     case usb_redir_set_alt_setting:
-        parser->callb.set_alt_setting_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.set_alt_setting_func(parser->callb.priv, id,
             (struct usb_redir_set_alt_setting_header *)parser->type_header);
         break;
     case usb_redir_get_alt_setting:
-        parser->callb.get_alt_setting_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.get_alt_setting_func(parser->callb.priv, id,
             (struct usb_redir_get_alt_setting_header *)parser->type_header);
         break;
     case usb_redir_alt_setting_status:
-        parser->callb.alt_setting_status_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.alt_setting_status_func(parser->callb.priv, id,
             (struct usb_redir_alt_setting_status_header *)parser->type_header);
         break;
     case usb_redir_start_iso_stream:
-        parser->callb.start_iso_stream_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.start_iso_stream_func(parser->callb.priv, id,
             (struct usb_redir_start_iso_stream_header *)parser->type_header);
         break;
     case usb_redir_stop_iso_stream:
-        parser->callb.stop_iso_stream_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.stop_iso_stream_func(parser->callb.priv, id,
             (struct usb_redir_stop_iso_stream_header *)parser->type_header);
         break;
     case usb_redir_iso_stream_status:
-        parser->callb.iso_stream_status_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.iso_stream_status_func(parser->callb.priv, id,
             (struct usb_redir_iso_stream_status_header *)parser->type_header);
         break;
     case usb_redir_start_interrupt_receiving:
-        parser->callb.start_interrupt_receiving_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.start_interrupt_receiving_func(parser->callb.priv, id,
             (struct usb_redir_start_interrupt_receiving_header *)
             parser->type_header);
         break;
     case usb_redir_stop_interrupt_receiving:
-        parser->callb.stop_interrupt_receiving_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.stop_interrupt_receiving_func(parser->callb.priv, id,
             (struct usb_redir_stop_interrupt_receiving_header *)
             parser->type_header);
         break;
     case usb_redir_interrupt_receiving_status:
-        parser->callb.interrupt_receiving_status_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.interrupt_receiving_status_func(parser->callb.priv, id,
             (struct usb_redir_interrupt_receiving_status_header *)
             parser->type_header);
         break;
     case usb_redir_alloc_bulk_streams:
-        parser->callb.alloc_bulk_streams_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.alloc_bulk_streams_func(parser->callb.priv, id,
             (struct usb_redir_alloc_bulk_streams_header *)parser->type_header);
         break;
     case usb_redir_free_bulk_streams:
-        parser->callb.free_bulk_streams_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.free_bulk_streams_func(parser->callb.priv, id,
             (struct usb_redir_free_bulk_streams_header *)parser->type_header);
         break;
     case usb_redir_bulk_streams_status:
-        parser->callb.bulk_streams_status_func(parser->callb.priv,
-            parser->header.id, (struct usb_redir_bulk_streams_status_header *)
-            parser->type_header);
+        parser->callb.bulk_streams_status_func(parser->callb.priv, id,
+          (struct usb_redir_bulk_streams_status_header *)parser->type_header);
         break;
     case usb_redir_cancel_data_packet:
-        parser->callb.cancel_data_packet_func(parser->callb.priv,
-            parser->header.id);
+        parser->callb.cancel_data_packet_func(parser->callb.priv, id);
         break;
     case usb_redir_filter_reject:
         parser->callb.filter_reject_func(parser->callb.priv);
@@ -695,25 +706,22 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser_pub)
         parser->callb.device_disconnect_ack_func(parser->callb.priv);
         break;
     case usb_redir_control_packet:
-        parser->callb.control_packet_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.control_packet_func(parser->callb.priv, id,
             (struct usb_redir_control_packet_header *)parser->type_header,
             parser->data, parser->data_len);
         break;
     case usb_redir_bulk_packet:
-        parser->callb.bulk_packet_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.bulk_packet_func(parser->callb.priv, id,
             (struct usb_redir_bulk_packet_header *)parser->type_header,
             parser->data, parser->data_len);
         break;
     case usb_redir_iso_packet:
-        parser->callb.iso_packet_func(parser->callb.priv, parser->header.id,
+        parser->callb.iso_packet_func(parser->callb.priv, id,
             (struct usb_redir_iso_packet_header *)parser->type_header,
             parser->data, parser->data_len);
         break;
     case usb_redir_interrupt_packet:
-        parser->callb.interrupt_packet_func(parser->callb.priv,
-            parser->header.id,
+        parser->callb.interrupt_packet_func(parser->callb.priv, id,
             (struct usb_redir_interrupt_packet_header *)parser->type_header,
             parser->data, parser->data_len);
         break;
@@ -724,8 +732,10 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
 {
     struct usbredirparser_priv *parser =
         (struct usbredirparser_priv *)parser_pub;
-    int r, type_header_len, data_len;
+    int r, header_len, type_header_len, data_len;
     uint8_t *dest;
+
+    header_len = usbredirparser_get_header_len(parser_pub);
 
     /* Skip forward to next packet (only used in error conditions) */
     while (parser->to_skip > 0) {
@@ -739,8 +749,8 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
 
     /* Consume data until read would block or returns an error */
     while (1) {
-        if (parser->header_read < sizeof(parser->header)) {
-            r = sizeof(parser->header) - parser->header_read;
+        if (parser->header_read < header_len) {
+            r = header_len - parser->header_read;
             dest = (uint8_t *)&parser->header + parser->header_read;
         } else if (parser->type_header_read < parser->type_header_len) {
             r = parser->type_header_len - parser->type_header_read;
@@ -757,9 +767,9 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
             }
         }
 
-        if (parser->header_read < sizeof(parser->header)) {
+        if (parser->header_read < header_len) {
             parser->header_read += r;
-            if (parser->header_read == sizeof(parser->header)) {
+            if (parser->header_read == header_len) {
                 type_header_len =
                     usbredirparser_get_type_header_len(parser_pub,
                                                        parser->header.type, 0);
@@ -887,8 +897,9 @@ static void usbredirparser_queue(struct usbredirparser *parser_pub,
     uint8_t *buf, *type_header_out, *data_out;
     struct usb_redir_header *header;
     struct usbredirparser_buf *wbuf, *new_wbuf;
-    int type_header_len;
+    int header_len, type_header_len;
 
+    header_len = usbredirparser_get_header_len(parser_pub);
     type_header_len = usbredirparser_get_type_header_len(parser_pub, type, 1);
     if (type_header_len < 0) { /* This should never happen */
         ERROR("error packet type unknown with internal call, please report!!");
@@ -902,7 +913,7 @@ static void usbredirparser_queue(struct usbredirparser *parser_pub,
     }
 
     new_wbuf = calloc(1, sizeof(*new_wbuf));
-    buf = malloc(sizeof(*header) + type_header_len + data_len);
+    buf = malloc(header_len + type_header_len + data_len);
     if (!new_wbuf || !buf) {
         ERROR("Out of memory allocating buffer to send packet, dropping!");
         free(new_wbuf); free(buf);
@@ -910,15 +921,18 @@ static void usbredirparser_queue(struct usbredirparser *parser_pub,
     }
 
     new_wbuf->buf = buf;
-    new_wbuf->len = sizeof(*header) + type_header_len + data_len;
+    new_wbuf->len = header_len + type_header_len + data_len;
 
     header = (struct usb_redir_header *)buf;
-    type_header_out = buf + sizeof(*header);
+    type_header_out = buf + header_len;
     data_out = type_header_out + type_header_len;
 
     header->type   = type;
-    header->id     = id;
     header->length = type_header_len + data_len;
+    if (usbredirparser_using_32bits_ids(parser_pub))
+        ((struct usb_redir_header_32bit_id *)header)->id = id;
+    else
+        header->id = id;
     memcpy(type_header_out, type_header_in, type_header_len);
     memcpy(data_out, data_in, data_len);
 
@@ -1401,7 +1415,7 @@ int usbredirparser_unserialize(struct usbredirparser *parser_pub,
     struct usbredirparser_buf *wbuf, **next;
     uint32_t orig_caps[USB_REDIR_CAPS_SIZE];
     uint8_t *data;
-    uint32_t i, l, remain = len;
+    uint32_t i, l, header_len, remain = len;
 
     if (unserialize_int(parser, &state, &remain, &i, "magic"))
         return -1;
@@ -1439,14 +1453,15 @@ int usbredirparser_unserialize(struct usbredirparser *parser_pub,
         return -1;
     parser->to_skip = i;
 
+    header_len = usbredirparser_get_header_len(parser_pub);
     data = (uint8_t *)&parser->header;
-    i = sizeof(parser->header);
+    i = header_len;
     if (unserialize_data(parser, &state, &remain, &data, &i, "header"))
         return -1;
     parser->header_read = i;
 
     /* Set various length field froms the header (if we've a header) */
-    if (parser->header_read == sizeof(parser->header)) {
+    if (parser->header_read == header_len) {
                 int type_header_len =
                     usbredirparser_get_type_header_len(parser_pub,
                                                        parser->header.type, 0);

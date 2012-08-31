@@ -57,6 +57,12 @@ struct usb_redir_ep_info_header_no_max_pktsz {
     uint8_t interface[32];
 } ATTR_PACKED;
 
+struct usb_redir_header_32bit_id {
+    uint32_t type;
+    uint32_t length;
+    uint32_t id;
+} ATTR_PACKED;
+
 #undef ATTR_PACKED
 
 #if defined(__MINGW32__) || !defined(__GNUC__)
