@@ -1,3 +1,11 @@
+usbredir-0.5   3 September 2012
+-------------------------------
+-Windows support 
+-usbredirparser:
+ -Add state serialization support
+-usbredirhost:
+ -Remove bulk packets time out, this fixes various devices not working
+
 usbredir-0.4.3 2 April 2012
 ---------------------------
 -usbredirhost:
