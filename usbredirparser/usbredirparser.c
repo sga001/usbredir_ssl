@@ -1517,5 +1517,10 @@ int usbredirparser_unserialize(struct usbredirparser *parser_pub,
         i--;
     }
 
+    if (remain) {
+        ERROR("error unserialize %d bytes of extraneous state data", remain);
+        return -1;
+    }
+
     return 0;
 }
