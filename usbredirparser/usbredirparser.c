@@ -143,7 +143,7 @@ void usbredirparser_init(struct usbredirparser *parser_pub,
         (struct usbredirparser_priv *)parser_pub;
     struct usb_redir_hello_header hello;
 
-    parser->flags = flags;
+    parser->flags = (flags & ~usbredirparser_fl_no_hello);
     if (parser->callb.alloc_lock_func) {
         parser->lock = parser->callb.alloc_lock_func();
     }
@@ -157,9 +157,10 @@ void usbredirparser_init(struct usbredirparser *parser_pub,
     if (!(flags & usbredirparser_fl_usb_host))
         usbredirparser_caps_set_cap(parser->our_caps,
                                     usb_redir_cap_device_disconnect_ack);
-    usbredirparser_queue(parser_pub, usb_redir_hello, 0, &hello,
-                         (uint8_t *)parser->our_caps,
-                         USB_REDIR_CAPS_SIZE * sizeof(uint32_t));
+    if (!(flags & usbredirparser_fl_no_hello))
+        usbredirparser_queue(parser_pub, usb_redir_hello, 0, &hello,
+                             (uint8_t *)parser->our_caps,
+                             USB_REDIR_CAPS_SIZE * sizeof(uint32_t));
 }
 
 void usbredirparser_destroy(struct usbredirparser *parser_pub)

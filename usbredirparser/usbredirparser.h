@@ -193,6 +193,7 @@ void usbredirparser_caps_set_cap(uint32_t *caps, int cap);
 enum {
     usbredirparser_fl_usb_host = 0x01,
     usbredirparser_fl_write_cb_owns_buffer = 0x02,
+    usbredirparser_fl_no_hello = 0x04,
 };
 
 void usbredirparser_init(struct usbredirparser *parser,
@@ -337,8 +338,9 @@ void usbredirparser_send_interrupt_packet(struct usbredirparser *parser,
 int usbredirparser_serialize(struct usbredirparser *parser,
                              uint8_t **state_dest, int *state_len);
 
-/* This function sets the current usbredirparser state from a serialized state,
-   this function assumes that the parser is in a clean initialized state.
+/* This function sets the current usbredirparser state from a serialized state.
+   This function assumes that the parser has just been initialized with the
+   usbredirparser_fl_no_hello flag.
 
    Return value: 0 on success, -1 on error (out of memory, or
                                             invalid state data). */
