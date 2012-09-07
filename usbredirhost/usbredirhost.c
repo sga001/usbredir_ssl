@@ -934,7 +934,7 @@ static void usbredirhost_log_data(struct usbredirhost *host, const char *desc,
             for (j = 0; j < 8 && i + j < len; j++){
                  n += sprintf(buf + n, " %02X", data[i + j]);
             }
-            va_log(host, usbredirparser_debug_data, buf);
+            va_log(host, usbredirparser_debug_data, "%s", buf);
         }
     }
 }
