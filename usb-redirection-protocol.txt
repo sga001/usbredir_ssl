@@ -1,4 +1,4 @@
-USB Network Redirection protocol description version 0.4.2 (6 March 2012)
+USB Network Redirection protocol description version 0.5 (7 September 2012)
 
 Revisions
 ---------
@@ -68,7 +68,7 @@ Version 0.4.2, released  6 March 2012
   This is only send / received if both sides have the
   usb_redir_cap_ep_info_max_packet_size capability
 
-Version 0.5,   released  3 September 2012
+Version 0.5,   released  7 September 2012
 - Add the posibility to use 64 bits packet ids
 
 
