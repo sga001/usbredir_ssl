@@ -1033,8 +1033,7 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
     case LIBUSB_TRANSFER_ERROR:
     case LIBUSB_TRANSFER_TIMED_OUT:
     default:
-        ERROR("iso stream error on endpoint %02X: %s", ep,
-              libusb_error_name(r));
+        ERROR("iso stream error on endpoint %02X: %d", ep, r);
         return 1;
     }
 }
@@ -1340,8 +1339,7 @@ static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
         host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
         goto unlock;
     default:
-        ERROR("interrupt in error on endpoint %02X: %s",
-              ep, libusb_error_name(r));
+        ERROR("interrupt in error on endpoint %02X: %d", ep, r);
         len = 0;
     }
 
