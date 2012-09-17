@@ -129,10 +129,10 @@ enum {
 };
 int usbredirhost_read_guest_data(struct usbredirhost *host);
 
-/* If this returns true there is data queued to write to the usb-guest */
+/* This returns the number of usbredir packets queued up for writing */
 int usbredirhost_has_data_to_write(struct usbredirhost *host);
 
-/* Call this when usbredirhost_has_data_to_write returns true
+/* Call this when usbredirhost_has_data_to_write returns > 0
    returns 0 on success, -1 if a write error happened.
    If a write error happened, this function will retry writing any queued data
    on the next call, and will continue doing so until it has succeeded! */

@@ -4,4 +4,3 @@
 * cancel pending packets / active streams before reset?
 * add a queue_buf call to parser, use it in host to avoid memcpy of
   "in" bulk transfers
-* use libusb strerror equivalent instead of numeric error codes in logs

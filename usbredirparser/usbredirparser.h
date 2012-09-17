@@ -222,10 +222,10 @@ enum {
 };
 int usbredirparser_do_read(struct usbredirparser *parser);
 
-/* If this returns true the parser has data queued to write to its peer */
+/* This returns the number of usbredir packets queued up for writing */
 int usbredirparser_has_data_to_write(struct usbredirparser *parser);
 
-/* Call this when usbredirparser_has_data_to_write returns true
+/* Call this when usbredirparser_has_data_to_write returns > 0
    returns 0 on success, -1 if a write error happened.
    If a write error happened, this function will retry writing any queued data
    on the next call, and will continue doing so until it has succeeded! */
