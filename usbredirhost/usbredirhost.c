@@ -84,6 +84,7 @@ struct usbredirhost_ep {
     uint8_t type;
     uint8_t interval;
     uint8_t interface;
+    uint8_t warn_on_drop;
     uint8_t iso_started;
     uint8_t iso_pkts_per_transfer;
     uint8_t iso_transfer_count;
@@ -407,6 +408,7 @@ static void usbredirhost_parse_interface(struct usbredirhost *host, int i)
             intf_desc->endpoint[j].bInterval;
         host->endpoint[EP2I(ep_address)].interface =
             intf_desc->bInterfaceNumber;
+        host->endpoint[EP2I(ep_address)].warn_on_drop = 1;
     }
 }
 
@@ -1107,11 +1109,23 @@ static void LIBUSB_CALL usbredirhost_iso_packet_complete(
                 .status   = status,
                 .length   = len
             };
-            DEBUG("iso-out ep %02X status %d len %d", ep, status, len);
-            usbredirparser_send_iso_packet(host->parser, transfer->id,
+            /* USB-2 is max 8000 packets / sec, if we've queued up more
+               then 0.1 sec, assume our connection is not keeping up and
+               start dropping packets. */
+            if (usbredirparser_has_data_to_write(host->parser) < 800) {
+                DEBUG("iso-out ep %02X status %d len %d", ep, status, len);
+                usbredirparser_send_iso_packet(host->parser, transfer->id,
                            &iso_packet,
                            libusb_get_iso_packet_buffer(libusb_transfer, i),
                            len);
+            } else {
+                if (host->endpoint[EP2I(ep)].warn_on_drop) {
+                    WARNING("iso stream on endpoint %02X, connection too slow, dropping packets", ep);
+                    host->endpoint[EP2I(ep)].warn_on_drop = 0;
+                }
+                DEBUG("iso-out ep %02X dropping packet status %d len %d",
+                      ep, status, len);
+            }
             transfer->id++;
         } else {
             DEBUG("iso-in complete ep %02X pkt %d len %d id %"PRIu64,
