@@ -3,7 +3,7 @@ exec_prefix=@exec_prefix@
 libdir=@libdir@
 includedir=@includedir@
 
-Name: libusbredirparser
+Name: libusbredirparser-0.5
 Description: usbredirparser library
 Version: @VERSION@
 Libs: -L${libdir} -lusbredirparser

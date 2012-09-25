@@ -1,5 +1,5 @@
 AC_PREREQ(2.63)
-AC_INIT([usbredir], [0.5.1])
+AC_INIT([usbredir], [0.5.2])
 AC_CONFIG_SRCDIR([configure.ac])
 
 AM_CONFIG_HEADER([config.h])
@@ -62,7 +62,7 @@ Makefile
 usbredirhost/Makefile
 usbredirhost/libusbredirhost.pc
 usbredirparser/Makefile
-usbredirparser/libusbredirparser.pc
+usbredirparser/libusbredirparser-0.5.pc
 usbredirserver/Makefile
 usbredirtestclient/Makefile
 ])

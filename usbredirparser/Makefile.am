@@ -11,4 +11,4 @@ libusbredirparser_la_SOURCES += strtok_r.c strtok_r.h
 endif
 
 pkgconfigdir = $(libdir)/pkgconfig
-pkgconfig_DATA = libusbredirparser.pc
+pkgconfig_DATA = libusbredirparser-0.5.pc

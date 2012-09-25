@@ -7,5 +7,5 @@ Name: libusbredirhost
 Description: usbredirhost library
 Version: @VERSION@
 Libs: -L${libdir} -lusbredirhost
-Requires.private: libusb-1.0 libusbredirparser
+Requires.private: libusb-1.0 libusbredirparser-0.5
 Cflags: -I${includedir}
