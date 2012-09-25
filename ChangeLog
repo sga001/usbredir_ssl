@@ -1,4 +1,4 @@
-usbredir-0.5.1 17 September 2012
+usbredir-0.5.1 19 September 2012
 --------------------------------
 -usbredirparser:
  -usbredirparser_has_data_to_write now returns the write queue depth, instead
@@ -6,6 +6,7 @@ usbredir-0.5.1 17 September 2012
 -usbredirhost:
  -usbredirhost_has_data_to_write now returns the write queue depth, instead
   of only 0 or 1
+ -when the write queue gets too large, drop isochronous input packets
 
 usbredir-0.5   7 September 2012
 -------------------------------
