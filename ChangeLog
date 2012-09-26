@@ -1,4 +1,4 @@
-usbredir-0.5.2 15 September 2012
+usbredir-0.5.2 25 September 2012
 --------------------------------
 -usbredirparser:
  -rename libusbredirparser.pc to libusbredirparser-0.5.pc
