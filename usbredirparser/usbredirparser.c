@@ -448,7 +448,14 @@ static int usbredirparser_get_type_header_len(
     case usb_redir_control_packet:
         return sizeof(struct usb_redir_control_packet_header);
     case usb_redir_bulk_packet:
-        return sizeof(struct usb_redir_bulk_packet_header);
+        if (usbredirparser_have_cap(parser_pub,
+                                usb_redir_cap_32bits_bulk_length) &&
+            usbredirparser_peer_has_cap(parser_pub,
+                                usb_redir_cap_32bits_bulk_length)) {
+            return sizeof(struct usb_redir_bulk_packet_header);
+        } else {
+            return sizeof(struct usb_redir_bulk_packet_header_16bit_length);
+        }
     case usb_redir_iso_packet:
         return sizeof(struct usb_redir_iso_packet_header);
     case usb_redir_interrupt_packet:
@@ -541,10 +548,21 @@ static int usbredirparser_verify_type_header(
         length = ((struct usb_redir_control_packet_header *)header)->length;
         ep = ((struct usb_redir_control_packet_header *)header)->endpoint;
         break;
-    case usb_redir_bulk_packet:
-        length = ((struct usb_redir_bulk_packet_header *)header)->length;
-        ep = ((struct usb_redir_bulk_packet_header *)header)->endpoint;
+    case usb_redir_bulk_packet: {
+        struct usb_redir_bulk_packet_header *bulk_packet = header;
+        if (usbredirparser_have_cap(parser_pub,
+                                usb_redir_cap_32bits_bulk_length) &&
+            usbredirparser_peer_has_cap(parser_pub,
+                                usb_redir_cap_32bits_bulk_length)) {
+            length = (bulk_packet->length_high << 16) | bulk_packet->length;
+        } else {
+            length = bulk_packet->length;
+            if (!send)
+                bulk_packet->length_high = 0;
+        }
+        ep = bulk_packet->endpoint;
         break;
+    }
     case usb_redir_iso_packet:
         length = ((struct usb_redir_iso_packet_header *)header)->length;
         ep = ((struct usb_redir_iso_packet_header *)header)->endpoint;

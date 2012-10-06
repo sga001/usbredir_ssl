@@ -117,6 +117,8 @@ enum {
     usb_redir_cap_ep_info_max_packet_size,
     /* Supports 64 bits ids in usb_redir_header */
     usb_redir_cap_64bits_ids,
+    /* Supports 32 bits length in usb_redir_bulk_packet_header */
+    usb_redir_cap_32bits_bulk_length,
 };
 /* Number of uint32_t-s needed to hold all (known) capabilities */
 #define USB_REDIR_CAPS_SIZE 1
@@ -239,6 +241,7 @@ struct usb_redir_bulk_packet_header {
     uint8_t status;
     uint16_t length;
     uint32_t stream_id;
+    uint16_t length_high; /* High 16 bits of the packet length */
 } ATTR_PACKED;
 
 struct usb_redir_iso_packet_header {

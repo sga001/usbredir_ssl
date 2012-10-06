@@ -71,9 +71,14 @@ Version 0.4.2, released  6 March 2012
 Version 0.5,   released  7 September 2012
 - Add the posibility to use 64 bits packet ids
 
+Version 0.5.3, released  7 October 2012
+- Extend the length field in bulk packets headers to 32 bits, the extra 16
+  bits are only send / received if both sides have the
+  usb_redir_cap_32bits_bulk_length capability
 
-USB redirerection protocol version 0.5
---------------------------------------
+
+USB redirerection protocol version 0.5.3
+----------------------------------------
 
 The protocol described in this document is meant for tunneling usb transfers
 to a single usb device. Note: not an entire hub, only a single device.
@@ -248,6 +253,8 @@ enum {
     usb_redir_cap_ep_info_max_packet_size,
     /* Supports 64 bits ids in usb_redir_header */
     usb_redir_cap_64bits_ids,
+    /* Supports 32 bits length in usb_redir_bulk_packet_header */
+    usb_redir_cap_32bits_bulk_length,
 };
 
 usb_redir_device_connect
@@ -796,6 +803,7 @@ struct usb_redir_bulk_packet_header {
     uint8_t status;
     uint16_t length;
     uint32_t stream_id;
+    uint16_t length_high; /* High 16 bits of the packet length */
 }
 
 The additional data contains the bulk msg data to be send / received.
@@ -805,6 +813,10 @@ initiate a bulk transfer on the usb-device. endpoint and stream_id have
 their standard meaning for usb bulk messages. The status field is only used
 in the usb-host's response. length is the amount of data the usb-guest is
 sending / expects to read (depending on the direction of the endpoint).
+
+length_high contains the 16 high bits of length to allow packets larger
+then 65535 bytes, it is only send/received if both sides have the
+usb_redir_cap_32bits_bulk_length capability.
 
 When the bulk msg has been processed by the usb-device the usb-host sends
 a usb_redir_bulk_packet back to the usb-guest, with the status field and

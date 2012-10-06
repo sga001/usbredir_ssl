@@ -63,6 +63,13 @@ struct usb_redir_header_32bit_id {
     uint32_t id;
 } ATTR_PACKED;
 
+struct usb_redir_bulk_packet_header_16bit_length {
+    uint8_t endpoint;
+    uint8_t status;
+    uint16_t length;
+    uint32_t stream_id;
+} ATTR_PACKED;
+
 #undef ATTR_PACKED
 
 #if defined(__MINGW32__) || !defined(__GNUC__)
