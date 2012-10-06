@@ -660,6 +660,7 @@ struct usbredirhost *usbredirhost_open_full(
     usbredirparser_caps_set_cap(caps, usb_redir_cap_device_disconnect_ack);
     usbredirparser_caps_set_cap(caps, usb_redir_cap_ep_info_max_packet_size);
     usbredirparser_caps_set_cap(caps, usb_redir_cap_64bits_ids);
+    usbredirparser_caps_set_cap(caps, usb_redir_cap_32bits_bulk_length);
 
     usbredirparser_init(host->parser, version, caps, USB_REDIR_CAPS_SIZE,
                         parser_flags);
@@ -1831,6 +1832,7 @@ static void usbredirhost_cancel_data_packet(void *priv, uint64_t id)
             bulk_packet = t->bulk_packet;
             bulk_packet.status = usb_redir_cancelled;
             bulk_packet.length = 0;
+            bulk_packet.length_high = 0;
             usbredirparser_send_bulk_packet(host->parser, t->id,
                                                &bulk_packet, NULL, 0);
             break;
@@ -1994,9 +1996,10 @@ static void LIBUSB_CALL usbredirhost_bulk_packet_complete(
     bulk_packet.status = libusb_status_or_error_to_redir_status(host,
                                                   libusb_transfer->status);
     bulk_packet.length = libusb_transfer->actual_length;
+    bulk_packet.length_high = libusb_transfer->actual_length >> 16;
 
     DEBUG("bulk complete ep %02X status %d len %d", bulk_packet.endpoint,
-          bulk_packet.status, bulk_packet.length);
+          bulk_packet.status, libusb_transfer->actual_length);
 
     LOCK(host);
 
@@ -2026,6 +2029,7 @@ static void usbredirhost_send_bulk_status(struct usbredirhost *host,
 {
     bulk_packet->status = status;
     bulk_packet->length = 0;
+    bulk_packet->length_high = 0;
     usbredirparser_send_bulk_packet(host->parser, id, bulk_packet, NULL, 0);
 }
 
@@ -2035,10 +2039,11 @@ static void usbredirhost_bulk_packet(void *priv, uint64_t id,
 {
     struct usbredirhost *host = priv;
     uint8_t ep = bulk_packet->endpoint;
+    int len = (bulk_packet->length_high << 16) | bulk_packet->length;
     struct usbredirtransfer *transfer;
     int r;
 
-    DEBUG("bulk submit ep %02X len %d", ep, bulk_packet->length);
+    DEBUG("bulk submit ep %02X len %d", ep, len);
 
     if (host->disconnected) {
         usbredirhost_send_bulk_status(host, id, bulk_packet,
@@ -2057,7 +2062,7 @@ static void usbredirhost_bulk_packet(void *priv, uint64_t id,
     }
 
     if (ep & LIBUSB_ENDPOINT_IN) {
-        data = malloc(bulk_packet->length);
+        data = malloc(len);
         if (!data) {
             ERROR("out of memory allocating bulk buffer, dropping packet");
             return;
@@ -2076,8 +2081,7 @@ static void usbredirhost_bulk_packet(void *priv, uint64_t id,
 
     host->reset = 0;
 
-    libusb_fill_bulk_transfer(transfer->transfer, host->handle, ep,
-                              data, bulk_packet->length,
+    libusb_fill_bulk_transfer(transfer->transfer, host->handle, ep, data, len,
                               usbredirhost_bulk_packet_complete,
                               transfer, BULK_TIMEOUT);
     transfer->id = id;
