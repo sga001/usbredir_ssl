@@ -295,6 +295,9 @@ Note that a usb-host may re-use the existing connection for a new / re-plugged
 device in this case this packet can be send after a usb_redir_device_disconnect
 message to notify the usb-guest that a new device is available.
 
+Note the usbredir-host *must* first send usb_redir_ep_info followed by
+usb_redir_interface_info before sending the usb_redir_device_connect_info!
+
 usb_redir_device_disconnect
 ---------------------------
 
@@ -345,7 +348,7 @@ No packet type specific additional data.
 This packet gets send by the usb-host to inform the usb-guest about the
 interfaces of the device. It contains the interface number, class and protocol
 info for interface_count interfaces. This gets send after a (successful)
-initial connection, reset, set_config and set_alt_setting.
+initial connection, set_config and set_alt_setting.
 
 usb_redir_ep_info
 -----------------
@@ -375,7 +378,7 @@ No packet type specific additional data.
 This packet gets send by the usb-host to let the usb-guest know the endpoint
 type, interval and interface it belongs to for all possible endpoints,
 first 0-15 out, then 0-15 in. This gets send after a (successful) initial
-connection, reset, set_config and set_alt_setting.
+connection, set_config and set_alt_setting.
 
 The max_packet_size field should only be send (and expected on receive)
 when both sides have the usb_redir_cap_ep_info_max_packet_size capability.
@@ -426,6 +429,12 @@ This is send by the usb-host in response to a usb_redir_set_configuration /
 usb_redir_get_configuration packet. It reports a status code and on success
 the resulting / active configuration.
 
+Note that after a successful usb_redir_set_configuration command the
+usbredir-host *must* first send usb_redir_ep_info followed by
+usb_redir_interface_info before sending the usb_redir_configuration_status,
+to ensure the usb-guest has the new info when it starts using the new
+configuration.
+
 
 usb_redir_set_alt_setting
 -------------------------
@@ -475,6 +484,12 @@ No packet type specific additional data.
 This is send by the usb-host in response to a usb_redir_set_alt_setting /
 usb_redir_get_alt_setting packet. It reports a status code, the affected
 interface and on success the resulting / active alt_setting for that interface.
+
+Note that after a successful usb_redir_set_alt_setting command the
+usbredir-host *must* first send usb_redir_ep_info followed by
+usb_redir_interface_info before sending the usb_redir_alt_setting_status,
+to ensure the usb-guest has the new info when it starts using the new
+alt setting.
 
 
 usb_redir_start_iso_stream
