@@ -1,4 +1,4 @@
-USB Network Redirection protocol description version 0.5 (7 September 2012)
+USB Network Redirection protocol description version 0.6 (28 November 2012)
 
 Revisions
 ---------
@@ -76,9 +76,15 @@ Version 0.5.3, released  7 October 2012
   bits are only send / received if both sides have the
   usb_redir_cap_32bits_bulk_length capability
 
+Version 0.6,   released 28 November 2012
+- Add support for buffered bulk input, new packets:
+  usb_redir_start_bulk_receiving, usb_redir_stop_bulk_receiving,
+  usb_redir_bulk_receiving_status, usb_redir_buffered_bulk_packet
+  New capability: usb_redir_cap_bulk_receiving
 
-USB redirerection protocol version 0.5.3
-----------------------------------------
+
+USB redirerection protocol version 0.6
+--------------------------------------
 
 The protocol described in this document is meant for tunneling usb transfers
 to a single usb device. Note: not an entire hub, only a single device.
@@ -181,12 +187,16 @@ usb_redir_cancel_data_packet
 usb_redir_filter_reject
 usb_redir_filter_filter
 usb_redir_device_disconnect_ack
+usb_redir_start_bulk_receiving
+usb_redir_stop_bulk_receiving
+usb_redir_bulk_receiving_status
 
 data packets:
 usb_redir_control_packet
 usb_redir_bulk_packet
 usb_redir_iso_packet
 usb_redir_interrupt_packet
+usb_redir_buffered_bulk_packet
 
 Status code list
 ----------------
@@ -255,6 +265,8 @@ enum {
     usb_redir_cap_64bits_ids,
     /* Supports 32 bits length in usb_redir_bulk_packet_header */
     usb_redir_cap_32bits_bulk_length,
+    /* Supports bulk receiving / buffered bulk input */
+    usb_redir_cap_bulk_receiving,
 };
 
 usb_redir_device_connect
@@ -681,6 +693,82 @@ limitations. On a success status in response to a usb_redir_alloc_bulk_streams
 the usb-guest may use stream ids 1 through no_streams.
 
 
+usb_redir_start_bulk_receiving
+------------------------------
+
+usb_redir_header.type:    usb_redir_start_bulk_receiving
+usb_redir_header.length:  sizeof(usb_redir_start_bulk_receiving_header)
+
+struct usb_redir_start_bulk_receiving_header {
+    uint32_t stream_id;
+    uint32_t bytes_per_transfer;
+    uint8_t endpoint;  
+    uint8_t no_transfers;
+}
+
+No packet type specific additional data.
+
+This packet can be send by the usb-guest to start buffered reading from a
+bulk endpoint.
+
+Upon receiving this packet the usb-host will submit no_transfers bulk in
+transfer of bytes_per_transfer each to the designated endpoint of the
+usb-device. Upon completion of a transfer the usb-host will send an
+usb_redir_buffered_bulk_packet with the received data to the usb-guest,
+and immediately re-submit the completed transfer.
+
+Note this packet should only be send to usb-hosts with the
+usb_redir_cap_bulk_receiving capability.
+
+usb_redir_stop_bulk_receiving
+-----------------------------
+
+usb_redir_header.type:    usb_redir_stop_bulk_receiving
+usb_redir_header.length:  sizeof(usb_redir_stop_bulk_receiving_header)
+
+struct usb_redir_stop_bulk_receiving_header {
+    uint32_t stream_id;
+    uint8_t endpoint;
+}
+
+No packet type specific additional data.
+
+This packet can be send by the usb-guest to stop bulk receiving on the
+designated endpoint. This will cancel all pending transfers. Note that the
+usb-guest can still receive usb_redir_bulk_packet-s after sending this, as
+some data packets may already be inside the transport pipe.
+
+Note this packet should only be send to usb-hosts with the
+usb_redir_cap_bulk_receiving capability.
+
+usb_redir_bulk_receiving_status
+-------------------------------
+
+usb_redir_header.type:    usb_redir_bulk_receiving_status
+usb_redir_header.length:  sizeof(usb_redir_bulk_receiving_status_header)
+
+struct usb_redir_bulk_receiving_status_header {
+    uint32_t stream_id;
+    uint8_t endpoint;
+    uint8_t status;
+}
+
+No packet type specific additional data.
+
+This packet is send by the usb-host in response to a
+usb_redir_start_bulk_receiving or usb_redir_stop_bulk_receiving packet.
+
+Note that this can also be send unsolicited by an usb-host in case of an
+error re-submitting the bulk transfer.
+
+To allow the usb-guest to detect if the stream was adversely stopped, the
+usb-host will always report usb_redir_stall as status if the stream was
+stopped for any reason other then an usb_redir_stop_interrupt_receiving.
+
+Note this packet should only be send to usb-guests with the
+usb_redir_cap_bulk_receiving capability.
+
+
 usb_redir_cancel_data_packet
 ----------------------------
 
@@ -840,6 +928,9 @@ length updated to match the actual results.
 Note just as usb_redir_control_packet this packet only has additional data
 in one direction depending on the direction of the endpoint.
 
+Note see usb_redir_buffered_bulk_packet for an alternative for receiving data
+from bulk endpoints.
+
 
 usb_redir_iso_packet
 --------------------
@@ -926,3 +1017,44 @@ with interrupt data, buffering makes no sense for output interrupt packets,
 instead they are delivered asap. Despite this asap delivery it is likely
 that the timing constraints which apply to interrupt output transfers will
 not be met. The consequences of this will vary from device to device.
+
+
+usb_redir_buffered_bulk_packet
+------------------------------
+
+usb_redir_header.type:    usb_redir_bulk_packet
+usb_redir_header.length:  sizeof(usb_redir_bulk_packet_header) + length
+usb_redir_header.id:      starts at 0, incremented by 1 per send packet
+
+struct usb_redir_buffered_bulk_packet_header {
+    uint32_t stream_id;
+    uint32_t length;
+    uint8_t endpoint;
+    uint8_t status;
+}
+
+The additional data contains the bulk msg data received.
+
+Buffered bulk mode is intended for bulk *input* endpoints, where the data is
+of a streaming nature (not part of a command-response protocol). These
+endpoints' input buffer may overflow if data is not read quickly enough.
+So in buffered bulk mode the usb-host takes care of the submitting and
+re-submitting of bulk transfers. The usb-guest can start / stop the receiving
+of buffered bulk data using the usb_redir_start_bulk_receiving /
+usb_redir_stop_bulk_receiving packets.
+
+Note that usb_redir_buffered_bulk_packet-s are only send in one direction,
+from the usb-host to the usb-guest!
+
+Since usb_redir_buffered_bulk_packet-s are send unsolicited by the usb-host
+once bulk receiving has started, the usb-host cannot set the
+usb_redir_header.id to the id of the corresponding received packet. So for
+usb_redir_buffered_bulk_packet-s the usb-host simply starts with an id of 0 and
+increments this every packet. Note that when the usb-host has recovered from
+a stall the id will restart at 0!
+
+A typical example where buffered bulk mode should be used is with the bulk in
+endpoints of usb to serial convertors.
+
+Note buffered bulk mode can only be used when both sides have the
+usb_redir_cap_bulk_receiving capability.

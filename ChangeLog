@@ -1,3 +1,8 @@
+usbredir-0.6   28 November 2012
+-------------------------------
+-usbredirproto:
+ -add support for buffered bulk input
+
 usbredir-0.5.3  7 October 2012
 ------------------------------
 -usbredirparser:

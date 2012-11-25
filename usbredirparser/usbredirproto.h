@@ -96,12 +96,16 @@ enum {
     usb_redir_filter_reject,
     usb_redir_filter_filter,
     usb_redir_device_disconnect_ack,
+    usb_redir_start_bulk_receiving,
+    usb_redir_stop_bulk_receiving,
+    usb_redir_bulk_receiving_status,
 
     /* Data packets */
     usb_redir_control_packet = 100,
     usb_redir_bulk_packet,
     usb_redir_iso_packet,
     usb_redir_interrupt_packet,
+    usb_redir_buffered_bulk_packet,
 };
 
 enum {
@@ -119,6 +123,8 @@ enum {
     usb_redir_cap_64bits_ids,
     /* Supports 32 bits length in usb_redir_bulk_packet_header */
     usb_redir_cap_32bits_bulk_length,
+    /* Supports bulk receiving / buffered bulk input */
+    usb_redir_cap_bulk_receiving,
 };
 /* Number of uint32_t-s needed to hold all (known) capabilities */
 #define USB_REDIR_CAPS_SIZE 1
@@ -226,6 +232,24 @@ struct usb_redir_bulk_streams_status_header {
     uint8_t no_streams;
 } ATTR_PACKED;
 
+struct usb_redir_start_bulk_receiving_header {
+    uint32_t stream_id;
+    uint32_t bytes_per_transfer;
+    uint8_t endpoint;
+    uint8_t no_transfers;
+} ATTR_PACKED;
+
+struct usb_redir_stop_bulk_receiving_header {
+    uint32_t stream_id;
+    uint8_t endpoint;
+} ATTR_PACKED;
+
+struct usb_redir_bulk_receiving_status_header {
+    uint32_t stream_id;
+    uint8_t endpoint;
+    uint8_t status;
+} ATTR_PACKED;
+
 struct usb_redir_control_packet_header {
     uint8_t endpoint;
     uint8_t request;
@@ -254,6 +278,13 @@ struct usb_redir_interrupt_packet_header {
     uint8_t endpoint;
     uint8_t status;
     uint16_t length;
+} ATTR_PACKED;
+
+struct usb_redir_buffered_bulk_packet_header {
+    uint32_t stream_id;
+    uint32_t length;
+    uint8_t endpoint;
+    uint8_t status;
 } ATTR_PACKED;
 
 #undef ATTR_PACKED
