@@ -206,14 +206,14 @@ int main(int argc, char *argv[])
         case 'p':
             port = strtol(optarg, &endptr, 10);
             if (*endptr != '\0') {
-                fprintf(stderr, "Inalid value for --port: '%s'\n", optarg);
+                fprintf(stderr, "Invalid value for --port: '%s'\n", optarg);
                 usage(1, argv[0]);
             }
             break;
         case 'v':
             verbose = strtol(optarg, &endptr, 10);
             if (*endptr != '\0') {
-                fprintf(stderr, "Inalid value for --verbose: '%s'\n", optarg);
+                fprintf(stderr, "Invalid value for --verbose: '%s'\n", optarg);
                 usage(1, argv[0]);
             }
             break;
