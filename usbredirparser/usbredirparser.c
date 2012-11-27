@@ -28,6 +28,9 @@
 #include "usbredirparser.h"
 #include "usbredirfilter.h"
 
+/* Put *some* upper limit on bulk transfer sizes */
+#define MAX_BULK_TRANSFER_SIZE (128u * 1024u * 1024u)
+
 /* Locking convenience macros */
 #define LOCK(parser) \
     do { \
@@ -560,6 +563,11 @@ static int usbredirparser_verify_type_header(
             if (!send)
                 bulk_packet->length_high = 0;
         }
+        if ((uint32_t)length > MAX_BULK_TRANSFER_SIZE) {
+            ERROR("bulk transfer length exceeds limits %u > %u",
+                  (uint32_t)length, MAX_BULK_TRANSFER_SIZE);
+            return 0;
+        }
         ep = bulk_packet->endpoint;
         break;
     }
@@ -811,8 +819,8 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
                     parser->header_read = 0;
                     return -2;
                 }
-                if (parser->header.length < type_header_len ||
-                    (parser->header.length > type_header_len &&
+                if ((int)parser->header.length < type_header_len ||
+                    ((int)parser->header.length > type_header_len &&
                      !usbredirparser_expect_extra_data(parser))) {
                     ERROR("error invalid packet length: %u", parser->header.length);
                     parser->to_skip = parser->header.length;
