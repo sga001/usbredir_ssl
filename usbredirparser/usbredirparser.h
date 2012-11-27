@@ -105,6 +105,12 @@ typedef void (*usbredirparser_filter_reject)(void *priv);
 typedef void (*usbredirparser_filter_filter)(void *priv,
     struct usbredirfilter_rule *rules, int rules_count);
 typedef void (*usbredirparser_device_disconnect_ack)(void *priv);
+typedef void (*usbredirparser_start_bulk_receiving)(void *priv,
+    uint64_t id, struct usb_redir_start_bulk_receiving_header *start_bulk_receiving);
+typedef void (*usbredirparser_stop_bulk_receiving)(void *priv,
+    uint64_t id, struct usb_redir_stop_bulk_receiving_header *stop_bulk_receiving);
+typedef void (*usbredirparser_bulk_receiving_status)(void *priv,
+    uint64_t id, struct usb_redir_bulk_receiving_status_header *bulk_receiving_status);
 
 /* Data packets:
 
@@ -122,6 +128,9 @@ typedef void (*usbredirparser_iso_packet)(void *priv,
     uint8_t *data, int data_len);
 typedef void (*usbredirparser_interrupt_packet)(void *priv,
     uint64_t id, struct usb_redir_interrupt_packet_header *interrupt_header,
+    uint8_t *data, int data_len);
+typedef void (*usbredirparser_buffered_bulk_packet)(void *priv, uint64_t id,
+    struct usb_redir_buffered_bulk_packet_header *buffered_bulk_header,
     uint8_t *data, int data_len);
 
 
@@ -175,6 +184,12 @@ struct usbredirparser {
     usbredirparser_filter_reject filter_reject_func;
     usbredirparser_filter_filter filter_filter_func;
     usbredirparser_device_disconnect_ack device_disconnect_ack_func;
+    /* usbredir 0.6 new control packet complete callbacks */
+    usbredirparser_start_bulk_receiving start_bulk_receiving_func;
+    usbredirparser_stop_bulk_receiving stop_bulk_receiving_func;
+    usbredirparser_bulk_receiving_status bulk_receiving_status_func;
+    /* usbredir 0.6 new data packet complete callbacks */
+    usbredirparser_buffered_bulk_packet buffered_bulk_packet_func;
 };
 
 /* Allocate a usbredirparser, after this the app should set the callback app
@@ -307,6 +322,15 @@ void usbredirparser_send_cancel_data_packet(struct usbredirparser *parser,
 void usbredirparser_send_filter_reject(struct usbredirparser *parser);
 void usbredirparser_send_filter_filter(struct usbredirparser *parser,
     const struct usbredirfilter_rule *rules, int rules_count);
+void usbredirparser_send_start_bulk_receiving(struct usbredirparser *parser,
+    uint64_t id,
+    struct usb_redir_start_bulk_receiving_header *start_bulk_receiving);
+void usbredirparser_send_stop_bulk_receiving(struct usbredirparser *parser,
+    uint64_t id,
+    struct usb_redir_stop_bulk_receiving_header *stop_bulk_receiving);
+void usbredirparser_send_bulk_receiving_status(struct usbredirparser *parser,
+    uint64_t id,
+    struct usb_redir_bulk_receiving_status_header *bulk_receiving_status);
 /* Data packets: */
 void usbredirparser_send_control_packet(struct usbredirparser *parser,
     uint64_t id,
@@ -323,6 +347,10 @@ void usbredirparser_send_iso_packet(struct usbredirparser *parser,
 void usbredirparser_send_interrupt_packet(struct usbredirparser *parser,
     uint64_t id,
     struct usb_redir_interrupt_packet_header *interrupt_header,
+    uint8_t *data, int data_len);
+void usbredirparser_send_buffered_bulk_packet(struct usbredirparser *parser,
+    uint64_t id,
+    struct usb_redir_buffered_bulk_packet_header *buffered_bulk_header,
     uint8_t *data, int data_len);
 
 

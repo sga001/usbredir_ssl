@@ -448,6 +448,24 @@ static int usbredirparser_get_type_header_len(
         } else {
             return -1;
         }
+    case usb_redir_start_bulk_receiving:
+        if (command_for_host) {
+            return sizeof(struct usb_redir_start_bulk_receiving_header);
+        } else {
+            return -1;
+        }
+    case usb_redir_stop_bulk_receiving:
+        if (command_for_host) {
+            return sizeof(struct usb_redir_stop_bulk_receiving_header);
+        } else {
+            return -1;
+        }
+    case usb_redir_bulk_receiving_status:
+        if (!command_for_host) {
+            return sizeof(struct usb_redir_bulk_receiving_status_header);
+        } else {
+            return -1;
+        }
     case usb_redir_control_packet:
         return sizeof(struct usb_redir_control_packet_header);
     case usb_redir_bulk_packet:
@@ -463,6 +481,12 @@ static int usbredirparser_get_type_header_len(
         return sizeof(struct usb_redir_iso_packet_header);
     case usb_redir_interrupt_packet:
         return sizeof(struct usb_redir_interrupt_packet_header);
+    case usb_redir_buffered_bulk_packet:
+        if (!command_for_host) {
+            return sizeof(struct usb_redir_buffered_bulk_packet_header);
+        } else {
+            return -1;
+        }
     default:
         return -1;
     }
@@ -475,11 +499,12 @@ static int usbredirparser_expect_extra_data(struct usbredirparser_priv *parser)
 {
     switch (parser->header.type) {
     case usb_redir_hello: /* For the variable length capabilities array */
+    case usb_redir_filter_filter:
     case usb_redir_control_packet:
     case usb_redir_bulk_packet:
     case usb_redir_iso_packet:
     case usb_redir_interrupt_packet:
-    case usb_redir_filter_filter:
+    case usb_redir_buffered_bulk_packet:
         return 1;
     default:
         return 0;
@@ -547,6 +572,26 @@ static int usbredirparser_verify_type_header(
             return 0;
         }
         break;
+    case usb_redir_start_bulk_receiving: {
+        struct usb_redir_start_bulk_receiving_header *start_bulk = header;
+
+        if (start_bulk->bytes_per_transfer > MAX_BULK_TRANSFER_SIZE) {
+            ERROR("start bulk receiving length exceeds limits %u > %u",
+                  start_bulk->bytes_per_transfer, MAX_BULK_TRANSFER_SIZE);
+            return 0;
+        }
+        /* Fall through for caps check */
+    }
+    case usb_redir_stop_bulk_receiving:
+    case usb_redir_bulk_receiving_status:
+        if ((send && !usbredirparser_peer_has_cap(parser_pub,
+                                             usb_redir_cap_bulk_receiving)) ||
+            (!send && !usbredirparser_have_cap(parser_pub,
+                                             usb_redir_cap_bulk_receiving))) {
+            ERROR("error bulk_receiving without cap_bulk_receiving");
+            return 0;
+        }
+        break;
     case usb_redir_control_packet:
         length = ((struct usb_redir_control_packet_header *)header)->length;
         ep = ((struct usb_redir_control_packet_header *)header)->endpoint;
@@ -579,6 +624,17 @@ static int usbredirparser_verify_type_header(
         length = ((struct usb_redir_interrupt_packet_header *)header)->length;
         ep = ((struct usb_redir_interrupt_packet_header *)header)->endpoint;
         break;
+    case usb_redir_buffered_bulk_packet: {
+        struct usb_redir_buffered_bulk_packet_header *buf_bulk_pkt = header;
+        length = buf_bulk_pkt->length;
+        if ((uint32_t)length > MAX_BULK_TRANSFER_SIZE) {
+            ERROR("buffered bulk transfer length exceeds limits %u > %u",
+                  (uint32_t)length, MAX_BULK_TRANSFER_SIZE);
+            return 0;
+        }
+        ep = buf_bulk_pkt->endpoint;
+        break;
+    }
     }
 
     if (ep != -1) {
@@ -607,6 +663,9 @@ static int usbredirparser_verify_type_header(
                     return 0;
                 }
                 break;
+            case usb_redir_buffered_bulk_packet:
+                ERROR("error buffered bulk packet send in wrong direction");
+                return 0;
             }
         }
     }
@@ -737,6 +796,21 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser_pub)
     case usb_redir_device_disconnect_ack:
         parser->callb.device_disconnect_ack_func(parser->callb.priv);
         break;
+    case usb_redir_start_bulk_receiving:
+        parser->callb.start_bulk_receiving_func(parser->callb.priv, id,
+            (struct usb_redir_start_bulk_receiving_header *)
+            parser->type_header);
+        break;
+    case usb_redir_stop_bulk_receiving:
+        parser->callb.stop_bulk_receiving_func(parser->callb.priv, id,
+            (struct usb_redir_stop_bulk_receiving_header *)
+            parser->type_header);
+        break;
+    case usb_redir_bulk_receiving_status:
+        parser->callb.bulk_receiving_status_func(parser->callb.priv, id,
+            (struct usb_redir_bulk_receiving_status_header *)
+            parser->type_header);
+        break;
     case usb_redir_control_packet:
         parser->callb.control_packet_func(parser->callb.priv, id,
             (struct usb_redir_control_packet_header *)parser->type_header,
@@ -756,6 +830,11 @@ static void usbredirparser_call_type_func(struct usbredirparser *parser_pub)
         parser->callb.interrupt_packet_func(parser->callb.priv, id,
             (struct usb_redir_interrupt_packet_header *)parser->type_header,
             parser->data, parser->data_len);
+        break;
+    case usb_redir_buffered_bulk_packet:
+        parser->callb.buffered_bulk_packet_func(parser->callb.priv, id,
+          (struct usb_redir_buffered_bulk_packet_header *)parser->type_header,
+          parser->data, parser->data_len);
         break;
     }
 }
@@ -1169,6 +1248,30 @@ void usbredirparser_send_filter_filter(struct usbredirparser *parser_pub,
     free(str);
 }
 
+void usbredirparser_send_start_bulk_receiving(struct usbredirparser *parser,
+    uint64_t id,
+    struct usb_redir_start_bulk_receiving_header *start_bulk_receiving)
+{
+    usbredirparser_queue(parser, usb_redir_start_bulk_receiving, id,
+                         start_bulk_receiving, NULL, 0);
+}
+
+void usbredirparser_send_stop_bulk_receiving(struct usbredirparser *parser,
+    uint64_t id,
+    struct usb_redir_stop_bulk_receiving_header *stop_bulk_receiving)
+{
+    usbredirparser_queue(parser, usb_redir_stop_bulk_receiving, id,
+                         stop_bulk_receiving, NULL, 0);
+}
+
+void usbredirparser_send_bulk_receiving_status(struct usbredirparser *parser,
+    uint64_t id,
+    struct usb_redir_bulk_receiving_status_header *bulk_receiving_status)
+{
+    usbredirparser_queue(parser, usb_redir_bulk_receiving_status, id,
+                         bulk_receiving_status, NULL, 0);
+}
+
 /* Data packets: */
 void usbredirparser_send_control_packet(struct usbredirparser *parser,
     uint64_t id,
@@ -1204,6 +1307,15 @@ void usbredirparser_send_interrupt_packet(struct usbredirparser *parser,
 {
     usbredirparser_queue(parser, usb_redir_interrupt_packet, id,
                          interrupt_header, data, data_len);
+}
+
+void usbredirparser_send_buffered_bulk_packet(struct usbredirparser *parser,
+    uint64_t id,
+    struct usb_redir_buffered_bulk_packet_header *buffered_bulk_header,
+    uint8_t *data, int data_len)
+{
+    usbredirparser_queue(parser, usb_redir_buffered_bulk_packet, id,
+                         buffered_bulk_header, data, data_len);
 }
 
 /****** Serialization support ******/
