@@ -196,14 +196,11 @@ static void usbredirhost_interrupt_packet(void *priv, uint64_t id,
     struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len);
 
-static int usbredirhost_alloc_stream(struct usbredirhost *host, uint8_t ep,
-    uint8_t type, uint8_t pkts_per_transfer, uint8_t transfer_count);
-static void usbredirhost_cancel_stream_unlocked(struct usbredirhost *host,
-    uint8_t ep);
+static void LIBUSB_CALL usbredirhost_iso_packet_complete(
+    struct libusb_transfer *libusb_transfer);
 static void usbredirhost_cancel_interrupt_in_transfer_unlocked(
     struct usbredirhost *host, uint8_t ep);
 static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host);
-static void usbredirhost_free_transfer(struct usbredirtransfer *transfer);
 static void usbredirhost_clear_device(struct usbredirhost *host);
 
 static void usbredirhost_log(void *priv, int level, const char *msg)
@@ -843,6 +840,135 @@ static void usbredirhost_remove_and_free_transfer(
     usbredirhost_free_transfer(transfer);
 }
 
+/**************************************************************************/
+
+/* Called from both parser read and packet complete callbacks */
+static void usbredirhost_cancel_stream_unlocked(struct usbredirhost *host,
+    uint8_t ep)
+{
+    int i;
+    struct usbredirtransfer *transfer;
+
+    for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count; i++) {
+        transfer = host->endpoint[EP2I(ep)].transfer[i];
+        if (transfer->packet_idx == SUBMITTED_IDX) {
+            libusb_cancel_transfer(transfer->transfer);
+            transfer->cancelled = 1;
+            host->cancels_pending++;
+        } else {
+            usbredirhost_free_transfer(transfer);
+        }
+        host->endpoint[EP2I(ep)].transfer[i] = NULL;
+    }
+    host->endpoint[EP2I(ep)].out_idx = 0;
+    host->endpoint[EP2I(ep)].stream_started = 0;
+    host->endpoint[EP2I(ep)].drop_packets = 0;
+    host->endpoint[EP2I(ep)].pkts_per_transfer = 0;
+    host->endpoint[EP2I(ep)].transfer_count = 0;
+}
+
+static void usbredirhost_cancel_stream(struct usbredirhost *host,
+    uint8_t ep)
+{
+    LOCK(host);
+    usbredirhost_cancel_stream_unlocked(host, ep);
+    UNLOCK(host);
+}
+
+/* Called from both parser read and packet complete callbacks */
+static int usbredirhost_submit_stream_transfer_unlocked(
+    struct usbredirhost *host, struct usbredirtransfer *transfer)
+{
+    int r;
+
+    r = libusb_submit_transfer(transfer->transfer);
+    if (r < 0) {
+        uint8_t ep = transfer->transfer->endpoint;
+        ERROR("error submitting transfer on ep %02X: %s, stopping stream",
+              ep, libusb_error_name(r));
+        usbredirhost_cancel_stream_unlocked(host, ep);
+        return libusb_status_or_error_to_redir_status(host, r);
+    }
+
+    transfer->packet_idx = SUBMITTED_IDX;
+    return usb_redir_success;
+}
+
+/* Called from both parser read and packet complete callbacks,
+   caller must hold host-lock */
+static int usbredirhost_alloc_stream(struct usbredirhost *host, uint8_t ep,
+    uint8_t type, uint8_t pkts_per_transfer, uint8_t transfer_count)
+{
+    int i, buf_size;
+    unsigned char *buffer;
+
+    if (host->endpoint[EP2I(ep)].type != type) {
+        ERROR("error start stream type %d on type %d endpoint",
+              type, host->endpoint[EP2I(ep)].type);
+        return usb_redir_inval;
+    }
+
+    if (   pkts_per_transfer < 1 ||
+           pkts_per_transfer > MAX_PACKETS_PER_TRANSFER ||
+           transfer_count < 1 ||
+           transfer_count > MAX_TRANSFER_COUNT) {
+        ERROR("error start stream type %d invalid parameters", type);
+        return usb_redir_inval;
+    }
+
+    if (host->endpoint[EP2I(ep)].transfer_count) {
+        ERROR("error received start type %d for already started stream", type);
+        return usb_redir_inval;
+    }
+
+    DEBUG("allocating stream ep %02X type %d packet-size %d pkts %d urbs %d",
+          ep, type, host->endpoint[EP2I(ep)].max_packetsize,
+          pkts_per_transfer, transfer_count);
+    for (i = 0; i < transfer_count; i++) {
+        host->endpoint[EP2I(ep)].transfer[i] =
+            usbredirhost_alloc_transfer(host, (type == usb_redir_type_iso) ?
+                                              pkts_per_transfer : 0);
+        if (!host->endpoint[EP2I(ep)].transfer[i]) {
+            goto alloc_error;
+        }
+
+        buf_size = host->endpoint[EP2I(ep)].max_packetsize * pkts_per_transfer;
+        buffer = malloc(buf_size);
+        if (!buffer) {
+            goto alloc_error;
+        }
+        switch (type) {
+        case usb_redir_type_iso:
+            libusb_fill_iso_transfer(
+                host->endpoint[EP2I(ep)].transfer[i]->transfer, host->handle,
+                ep, buffer, buf_size, pkts_per_transfer,
+                usbredirhost_iso_packet_complete,
+                host->endpoint[EP2I(ep)].transfer[i], ISO_TIMEOUT);
+            libusb_set_iso_packet_lengths(
+                host->endpoint[EP2I(ep)].transfer[i]->transfer,
+                host->endpoint[EP2I(ep)].max_packetsize);
+            break;
+        }
+    }
+    host->endpoint[EP2I(ep)].out_idx = 0;
+    host->endpoint[EP2I(ep)].drop_packets = 0;
+    host->endpoint[EP2I(ep)].pkts_per_transfer = pkts_per_transfer;
+    host->endpoint[EP2I(ep)].transfer_count = transfer_count;
+
+    return usb_redir_success;
+
+alloc_error:
+    ERROR("out of memory allocating type %d stream buffers", type);
+    do {
+        usbredirhost_free_transfer(host->endpoint[EP2I(ep)].transfer[i]);
+        host->endpoint[EP2I(ep)].transfer[i] = NULL;
+        i--;
+    } while (i >= 0);
+    return usb_redir_ioerror;
+}
+
+/**************************************************************************/
+
 /* Called from close and parser read callbacks */
 static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host)
 {
@@ -950,25 +1076,6 @@ static void usbredirhost_send_iso_status(struct usbredirhost *host,
     iso_stream_status.endpoint = endpoint;
     iso_stream_status.status = status;
     usbredirparser_send_iso_stream_status(host->parser, id, &iso_stream_status);
-}
-
-/* Called from both parser read and packet complete callbacks */
-static int usbredirhost_submit_stream_transfer_unlocked(
-    struct usbredirhost *host, struct usbredirtransfer *transfer)
-{
-    int r;
-
-    r = libusb_submit_transfer(transfer->transfer);
-    if (r < 0) {
-        uint8_t ep = transfer->transfer->endpoint;
-        ERROR("error submitting transfer on ep %02X: %s, stopping stream",
-              ep, libusb_error_name(r));
-        usbredirhost_cancel_stream_unlocked(host, ep);
-        return libusb_status_or_error_to_redir_status(host, r);
-    }
-
-    transfer->packet_idx = SUBMITTED_IDX;
-    return usb_redir_success;
 }
 
 /* Return value:
@@ -1162,109 +1269,6 @@ resubmit:
 unlock:
     UNLOCK(host);
     FLUSH(host);
-}
-
-static int usbredirhost_alloc_stream(struct usbredirhost *host, uint8_t ep,
-    uint8_t type, uint8_t pkts_per_transfer, uint8_t transfer_count)
-{
-    int i, buf_size;
-    unsigned char *buffer;
-
-    if (host->endpoint[EP2I(ep)].type != type) {
-        ERROR("error start stream type %d on type %d endpoint",
-              type, host->endpoint[EP2I(ep)].type);
-        return usb_redir_inval;
-    }
-
-    if (   pkts_per_transfer < 1 ||
-           pkts_per_transfer > MAX_PACKETS_PER_TRANSFER ||
-           transfer_count < 1 ||
-           transfer_count > MAX_TRANSFER_COUNT) {
-        ERROR("error start stream type %d invalid parameters", type);
-        return usb_redir_inval;
-    }
-
-    if (host->endpoint[EP2I(ep)].transfer_count) {
-        ERROR("error received start type %d for already started stream", type);
-        return usb_redir_inval;
-    }
-
-    DEBUG("allocating stream ep %02X type %d packet-size %d pkts %d urbs %d",
-          ep, type, host->endpoint[EP2I(ep)].max_packetsize,
-          pkts_per_transfer, transfer_count);
-    for (i = 0; i < transfer_count; i++) {
-        host->endpoint[EP2I(ep)].transfer[i] =
-            usbredirhost_alloc_transfer(host, (type == usb_redir_type_iso) ?
-                                              pkts_per_transfer : 0);
-        if (!host->endpoint[EP2I(ep)].transfer[i]) {
-            goto alloc_error;
-        }
-
-        buf_size = host->endpoint[EP2I(ep)].max_packetsize * pkts_per_transfer;
-        buffer = malloc(buf_size);
-        if (!buffer) {
-            goto alloc_error;
-        }
-        switch (type) {
-        case usb_redir_type_iso:
-            libusb_fill_iso_transfer(
-                host->endpoint[EP2I(ep)].transfer[i]->transfer, host->handle,
-                ep, buffer, buf_size, pkts_per_transfer,
-                usbredirhost_iso_packet_complete,
-                host->endpoint[EP2I(ep)].transfer[i], ISO_TIMEOUT);
-            libusb_set_iso_packet_lengths(
-                host->endpoint[EP2I(ep)].transfer[i]->transfer,
-                host->endpoint[EP2I(ep)].max_packetsize);
-            break;
-        }
-    }
-    host->endpoint[EP2I(ep)].out_idx = 0;
-    host->endpoint[EP2I(ep)].drop_packets = 0;
-    host->endpoint[EP2I(ep)].pkts_per_transfer = pkts_per_transfer;
-    host->endpoint[EP2I(ep)].transfer_count = transfer_count;
-
-    return usb_redir_success;
-
-alloc_error:
-    ERROR("out of memory allocating type %d stream buffers", type);
-    do {
-        usbredirhost_free_transfer(host->endpoint[EP2I(ep)].transfer[i]);
-        host->endpoint[EP2I(ep)].transfer[i] = NULL;
-        i--;
-    } while (i >= 0);
-    return usb_redir_ioerror;
-}
-
-static void usbredirhost_cancel_stream_unlocked(struct usbredirhost *host,
-    uint8_t ep)
-{
-    int i;
-    struct usbredirtransfer *transfer;
-
-    for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count; i++) {
-        transfer = host->endpoint[EP2I(ep)].transfer[i];
-        if (transfer->packet_idx == SUBMITTED_IDX) {
-            libusb_cancel_transfer(transfer->transfer);
-            transfer->cancelled = 1;
-            host->cancels_pending++;
-        } else {
-            usbredirhost_free_transfer(transfer);
-        }
-        host->endpoint[EP2I(ep)].transfer[i] = NULL;
-    }
-    host->endpoint[EP2I(ep)].out_idx = 0;
-    host->endpoint[EP2I(ep)].stream_started = 0;
-    host->endpoint[EP2I(ep)].drop_packets = 0;
-    host->endpoint[EP2I(ep)].pkts_per_transfer = 0;
-    host->endpoint[EP2I(ep)].transfer_count = 0;
-}
-
-static void usbredirhost_cancel_stream(struct usbredirhost *host,
-    uint8_t ep)
-{
-    LOCK(host);
-    usbredirhost_cancel_stream_unlocked(host, ep);
-    UNLOCK(host);
 }
 
 /**************************************************************************/
