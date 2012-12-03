@@ -38,6 +38,7 @@
 
 #define MAX_TRANSFER_COUNT        16
 #define MAX_PACKETS_PER_TRANSFER  32
+#define INTERRUPT_TRANSFER_COUNT   5
 /* Special packet_idx value indicating a submitted transfer */
 #define SUBMITTED_IDX             -1
 
@@ -92,7 +93,6 @@ struct usbredirhost_ep {
     int drop_packets;
     int max_packetsize;
     struct usbredirtransfer *transfer[MAX_TRANSFER_COUNT];
-    struct usbredirtransfer *interrupt_in_transfer;
 };
 
 struct usbredirhost {
@@ -198,8 +198,8 @@ static void usbredirhost_interrupt_packet(void *priv, uint64_t id,
 
 static void LIBUSB_CALL usbredirhost_iso_packet_complete(
     struct libusb_transfer *libusb_transfer);
-static void usbredirhost_cancel_interrupt_in_transfer_unlocked(
-    struct usbredirhost *host, uint8_t ep);
+static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
+    struct libusb_transfer *libusb_transfer);
 static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host);
 static void usbredirhost_clear_device(struct usbredirhost *host);
 
@@ -983,6 +983,12 @@ static int usbredirhost_alloc_stream_unlocked(struct usbredirhost *host,
                 host->endpoint[EP2I(ep)].transfer[i]->transfer,
                 host->endpoint[EP2I(ep)].max_packetsize);
             break;
+        case usb_redir_type_interrupt:
+            libusb_fill_interrupt_transfer(
+                host->endpoint[EP2I(ep)].transfer[i]->transfer, host->handle,
+                ep, buffer, buf_size, usbredirhost_interrupt_packet_complete,
+                host->endpoint[EP2I(ep)].transfer[i], INTERRUPT_TIMEOUT);
+            break;
         }
     }
     host->endpoint[EP2I(ep)].out_idx = 0;
@@ -1029,16 +1035,7 @@ static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host)
 
     LOCK(host);
     for (i = 0; i < MAX_ENDPOINTS; i++) {
-        switch (host->endpoint[i].type) {
-        case usb_redir_type_iso:
-            usbredirhost_cancel_stream_unlocked(host, I2EP(i));
-            break;
-        case usb_redir_type_interrupt:
-            if (i & 0x10)
-                usbredirhost_cancel_interrupt_in_transfer_unlocked(host,
-                                                                   I2EP(i));
-            break;
-        }
+        usbredirhost_cancel_stream_unlocked(host, I2EP(i));
     }
 
     wait = host->cancels_pending;
@@ -1064,15 +1061,7 @@ static void usbredirhost_cancel_pending_urbs_on_interface(
     for (i = 0; i < intf_desc->bNumEndpoints; i++) {
         uint8_t ep = intf_desc->endpoint[i].bEndpointAddress;
 
-        switch (host->endpoint[EP2I(ep)].type) {
-        case usb_redir_type_iso:
-            usbredirhost_cancel_stream_unlocked(host, ep);
-            break;
-        case usb_redir_type_interrupt:
-            if (ep & LIBUSB_ENDPOINT_IN)
-                usbredirhost_cancel_interrupt_in_transfer_unlocked(host, ep);
-            break;
-        }
+        usbredirhost_cancel_stream_unlocked(host, ep);
 
         for (t = host->transfers_head.next; t; t = t->next) {
             if (t->transfer->endpoint == ep)
@@ -1309,7 +1298,7 @@ unlock:
 
 /**************************************************************************/
 
-static void usbredirhost_send_interrupt_recv_status(struct usbredirhost *host,
+static void usbredirhost_send_int_status(struct usbredirhost *host,
     uint64_t id, uint8_t endpoint, uint8_t status)
 {
     struct usb_redir_interrupt_receiving_status_header interrupt_status;
@@ -1320,24 +1309,6 @@ static void usbredirhost_send_interrupt_recv_status(struct usbredirhost *host,
                                                    &interrupt_status);
 }
 
-static int usbredirhost_submit_interrupt_in_transfer(struct usbredirhost *host,
-    uint8_t ep)
-{
-    int r;
-    struct usbredirtransfer *transfer;
-
-    transfer = host->endpoint[EP2I(ep)].interrupt_in_transfer;
-    r = libusb_submit_transfer(transfer->transfer);
-    if (r < 0) {
-        ERROR("error submitting interrupt transfer on ep %02X: %s", ep,
-              libusb_error_name(r));
-        usbredirhost_free_transfer(transfer);
-        host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
-        return usb_redir_stall;
-    }
-    return usb_redir_success;
-}
-
 static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
     struct libusb_transfer *libusb_transfer)
 {
@@ -1345,6 +1316,7 @@ static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
     uint8_t ep = libusb_transfer->endpoint;
     struct usb_redir_interrupt_packet_header interrupt_packet;
     struct usbredirhost *host = transfer->host;
+    uint64_t id = transfer->id;
     int len, status, r;
 
     status = libusb_status_or_error_to_redir_status(host,
@@ -1374,6 +1346,9 @@ static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
         goto unlock;
     }
 
+    /* Mark transfer completed (iow not submitted) */
+    transfer->packet_idx = 0;
+
     usbredirhost_log_data(host, "interrupt data in:",
                           libusb_transfer->buffer, len);
     r = libusb_transfer->status;
@@ -1382,21 +1357,21 @@ static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
         break;
     case LIBUSB_TRANSFER_STALL:
         WARNING("interrupt endpoint %02X stalled, clearing stall", ep);
+        usbredirhost_cancel_stream_unlocked(host, ep);
         r = libusb_clear_halt(host->handle, ep);
         if (r < 0) {
-            /* Failed to clear stall, stop receiving */
-            usbredirhost_send_interrupt_recv_status(host, transfer->id, ep,
-                                                    usb_redir_stall);
-            usbredirhost_free_transfer(transfer);
-            host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
+            usbredirhost_send_int_status(host, id, ep, usb_redir_stall);
             goto unlock;
         }
-        transfer->id = 0;
-        goto resubmit;
+        status = usbredirhost_alloc_stream_unlocked(host, ep,
+                                                usb_redir_type_interrupt,
+                                                1, INTERRUPT_TRANSFER_COUNT);
+        if (status != usb_redir_success) {
+            usbredirhost_send_int_status(host, id, ep, status);
+        }
+        goto unlock;
     case LIBUSB_TRANSFER_NO_DEVICE:
         usbredirhost_handle_disconnect(host);
-        usbredirhost_free_transfer(transfer);
-        host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
         goto unlock;
     default:
         ERROR("interrupt in error on endpoint %02X: %d", ep, r);
@@ -1408,69 +1383,15 @@ static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
     interrupt_packet.length   = len;
     usbredirparser_send_interrupt_packet(host->parser, transfer->id,
                           &interrupt_packet, transfer->transfer->buffer, len);
-    transfer->id++;
+    transfer->id += host->endpoint[EP2I(ep)].transfer_count;
 
-resubmit:
-    status = usbredirhost_submit_interrupt_in_transfer(host, ep);
+    status = usbredirhost_submit_stream_transfer_unlocked(host, transfer);
     if (status != usb_redir_success) {
-        usbredirhost_send_interrupt_recv_status(host, transfer->id, ep,
-                                                status);
+        usbredirhost_send_int_status(host, id, ep, usb_redir_stall);
     }
 unlock:
     UNLOCK(host);
     FLUSH(host);
-}
-
-static int usbredirhost_alloc_interrupt_in_transfer(struct usbredirhost *host,
-    uint8_t ep)
-{
-    int buf_size;
-    unsigned char *buffer;
-    struct usbredirtransfer *transfer;
-
-    if (host->endpoint[EP2I(ep)].type != usb_redir_type_interrupt) {
-        ERROR("error received start interrupt packet for non interrupt ep %02X", ep);
-        return usb_redir_inval;
-    }
-
-    if (!(ep & LIBUSB_ENDPOINT_IN)) {
-        ERROR("error received start interrupt packet for non input ep %02X", ep);
-        return usb_redir_inval;
-    }
-
-    transfer = usbredirhost_alloc_transfer(host, 0);
-    if (!transfer) {
-        return usb_redir_ioerror;
-    }
-
-    buf_size = host->endpoint[EP2I(ep)].max_packetsize;
-    buffer = malloc(buf_size);
-    if (!buffer) {
-        ERROR("out of memory allocating interrupt buffer");
-        usbredirhost_free_transfer(transfer);
-        return usb_redir_ioerror;
-    }
-
-    libusb_fill_interrupt_transfer(transfer->transfer, host->handle, ep,
-        buffer, buf_size, usbredirhost_interrupt_packet_complete, transfer,
-        INTERRUPT_TIMEOUT);
-    host->endpoint[EP2I(ep)].interrupt_in_transfer = transfer;
-    return usb_redir_success;
-}
-
-static void usbredirhost_cancel_interrupt_in_transfer_unlocked(
-    struct usbredirhost *host, uint8_t ep)
-{
-    struct usbredirtransfer *transfer;
-
-    transfer = host->endpoint[EP2I(ep)].interrupt_in_transfer;
-    if (!transfer)
-        return; /* Already stopped */
-
-    libusb_cancel_transfer(transfer->transfer);
-    transfer->cancelled = 1;
-    host->cancels_pending++;
-    host->endpoint[EP2I(ep)].interrupt_in_transfer = NULL;
 }
 
 /**************************************************************************/
@@ -1697,31 +1618,9 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint64_t id,
     uint8_t ep = start_interrupt_receiving->endpoint;
     int status;
 
-    LOCK(host);
-
-    if (host->disconnected) {
-        status = usb_redir_ioerror;
-        goto leave;
-    }
-
-    if (host->endpoint[EP2I(ep)].interrupt_in_transfer) {
-        ERROR("error received interrupt start for already active ep %02X", ep);
-        status = usb_redir_inval;
-        goto leave;
-    }
-
-    status = usbredirhost_alloc_interrupt_in_transfer(host, ep);
-    if (status != usb_redir_success) {
-        status = usb_redir_stall;
-        goto leave;
-    }
-
-    host->reset = 0;
-
-    status = usbredirhost_submit_interrupt_in_transfer(host, ep);
-leave:
-    UNLOCK(host);
-    usbredirhost_send_interrupt_recv_status(host, id, ep, status);
+    status = usbredirhost_alloc_stream(host, ep, usb_redir_type_interrupt,
+                                       1, INTERRUPT_TRANSFER_COUNT);
+    usbredirhost_send_int_status(host, id, ep, status);
     FLUSH(host);
 }
 
@@ -1737,12 +1636,10 @@ static void usbredirhost_stop_interrupt_receiving(void *priv, uint64_t id,
         goto exit;
     }
 
-    LOCK(host);
-    usbredirhost_cancel_interrupt_in_transfer_unlocked(host, ep);
-    UNLOCK(host);
+    usbredirhost_cancel_stream(host, ep);
 
 exit:
-    usbredirhost_send_interrupt_recv_status(host, id, ep, status);
+    usbredirhost_send_int_status(host, id, ep, status);
     FLUSH(host);
 }
 

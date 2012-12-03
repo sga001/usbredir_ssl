@@ -4,6 +4,8 @@ usbredir-0.6   28 November 2012
  -add support for buffered bulk input
 -usbredirparser:
  -add support for buffered bulk input
+-usbredirhost:
+ -queue multiple transfers for interrupt receiving
 
 usbredir-0.5.3  7 October 2012
 ------------------------------
