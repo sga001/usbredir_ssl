@@ -886,9 +886,13 @@ static int usbredirhost_submit_stream_transfer_unlocked(
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
         uint8_t ep = transfer->transfer->endpoint;
-        ERROR("error submitting transfer on ep %02X: %s, stopping stream",
-              ep, libusb_error_name(r));
-        usbredirhost_cancel_stream_unlocked(host, ep);
+        if (r == LIBUSB_ERROR_NO_DEVICE) {
+            usbredirhost_handle_disconnect(host);
+        } else {
+            ERROR("error submitting transfer on ep %02X: %s, stopping stream",
+                  ep, libusb_error_name(r));
+            usbredirhost_cancel_stream_unlocked(host, ep);
+        }
         return usb_redir_stall;
     }
 
