@@ -198,7 +198,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint64_t id,
 
 static void LIBUSB_CALL usbredirhost_iso_packet_complete(
     struct libusb_transfer *libusb_transfer);
-static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
+static void LIBUSB_CALL usbredirhost_buffered_packet_complete(
     struct libusb_transfer *libusb_transfer);
 static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host);
 static void usbredirhost_clear_device(struct usbredirhost *host);
@@ -986,7 +986,7 @@ static int usbredirhost_alloc_stream_unlocked(struct usbredirhost *host,
         case usb_redir_type_interrupt:
             libusb_fill_interrupt_transfer(
                 host->endpoint[EP2I(ep)].transfer[i]->transfer, host->handle,
-                ep, buffer, buf_size, usbredirhost_interrupt_packet_complete,
+                ep, buffer, buf_size, usbredirhost_buffered_packet_complete,
                 host->endpoint[EP2I(ep)].transfer[i], INTERRUPT_TIMEOUT);
             break;
         }
@@ -1309,7 +1309,7 @@ static void usbredirhost_send_int_status(struct usbredirhost *host,
                                                    &interrupt_status);
 }
 
-static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
+static void LIBUSB_CALL usbredirhost_buffered_packet_complete(
     struct libusb_transfer *libusb_transfer)
 {
     struct usbredirtransfer *transfer = libusb_transfer->user_data;
@@ -1317,29 +1317,14 @@ static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
     struct usb_redir_interrupt_packet_header interrupt_packet;
     struct usbredirhost *host = transfer->host;
     uint64_t id = transfer->id;
-    int len, status, r;
-
-    status = libusb_status_or_error_to_redir_status(host,
+    int r, len = libusb_transfer->actual_length;
+    int status = libusb_status_or_error_to_redir_status(host,
                                                     libusb_transfer->status);
-    len = libusb_transfer->actual_length;
-    DEBUG("interrupt complete ep %02X status %d len %d", ep, status, len);
+
+    DEBUG("buffered complete ep %02X status %d len %d", ep, status, len);
 
     LOCK(host);
 
-    if (!(ep & LIBUSB_ENDPOINT_IN)) {
-        /* Output endpoints are easy */
-        if (!transfer->cancelled) {
-            interrupt_packet = transfer->interrupt_packet;
-            interrupt_packet.status = status;
-            interrupt_packet.length = len;
-            usbredirparser_send_interrupt_packet(host->parser, transfer->id,
-                                                 &interrupt_packet, NULL, 0);
-        }
-        usbredirhost_remove_and_free_transfer(transfer);
-        goto unlock;
-    }
-
-    /* Everything below is for input endpoints */
     if (transfer->cancelled) {
         host->cancels_pending--;
         usbredirhost_free_transfer(transfer);
@@ -1349,7 +1334,7 @@ static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
     /* Mark transfer completed (iow not submitted) */
     transfer->packet_idx = 0;
 
-    usbredirhost_log_data(host, "interrupt data in:",
+    usbredirhost_log_data(host, "buffered data in:",
                           libusb_transfer->buffer, len);
     r = libusb_transfer->status;
     switch (r) {
@@ -1374,7 +1359,7 @@ static void LIBUSB_CALL usbredirhost_interrupt_packet_complete(
         usbredirhost_handle_disconnect(host);
         goto unlock;
     default:
-        ERROR("interrupt in error on endpoint %02X: %d", ep, r);
+        ERROR("buffered in error on endpoint %02X: %d", ep, r);
         len = 0;
     }
 
@@ -2111,6 +2096,32 @@ leave:
     }
 }
 
+static void LIBUSB_CALL usbredirhost_interrupt_out_packet_complete(
+    struct libusb_transfer *libusb_transfer)
+{
+    struct usbredirtransfer *transfer = libusb_transfer->user_data;
+    struct usb_redir_interrupt_packet_header interrupt_packet;
+    struct usbredirhost *host = transfer->host;
+
+    interrupt_packet = transfer->interrupt_packet;
+    interrupt_packet.status = libusb_status_or_error_to_redir_status(host,
+                                                    libusb_transfer->status);
+    interrupt_packet.length = libusb_transfer->actual_length;
+
+    DEBUG("interrupt out complete ep %02X status %d len %d",
+          interrupt_packet.endpoint, interrupt_packet.status,
+          interrupt_packet.length);
+
+    LOCK(host);
+    if (!transfer->cancelled) {
+        usbredirparser_send_interrupt_packet(host->parser, transfer->id,
+                                             &interrupt_packet, NULL, 0);
+    }
+    usbredirhost_remove_and_free_transfer(transfer);
+    UNLOCK(host);
+    FLUSH(host);
+}
+
 static void usbredirhost_send_interrupt_status(struct usbredirhost *host,
     uint64_t id, struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t status)
@@ -2172,7 +2183,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint64_t id,
     host->reset = 0;
 
     libusb_fill_interrupt_transfer(transfer->transfer, host->handle, ep,
-        data, data_len, usbredirhost_interrupt_packet_complete,
+        data, data_len, usbredirhost_interrupt_out_packet_complete,
         transfer, INTERRUPT_TIMEOUT);
     transfer->id = id;
     transfer->interrupt_packet = *interrupt_packet;
@@ -2185,7 +2196,7 @@ static void usbredirhost_interrupt_packet(void *priv, uint64_t id,
               ep, libusb_error_name(r));
         transfer->transfer->actual_length = 0;
         transfer->transfer->status = r;
-        usbredirhost_interrupt_packet_complete(transfer->transfer);
+        usbredirhost_interrupt_out_packet_complete(transfer->transfer);
     }
 }
 
