@@ -36,10 +36,10 @@
 #define ISO_TIMEOUT        1000
 #define INTERRUPT_TIMEOUT     0 /* No timeout for interrupt transfers */
 
-#define MAX_ISO_TRANSFER_COUNT       16
-#define MAX_ISO_PACKETS_PER_TRANSFER 32
-/* Special iso_packet_idx value indicating a submitted transfer */
-#define ISO_SUBMITTED_IDX            -1
+#define MAX_TRANSFER_COUNT        16
+#define MAX_PACKETS_PER_TRANSFER  32
+/* Special packet_idx value indicating a submitted transfer */
+#define SUBMITTED_IDX             -1
 
 /* Macros to go from an endpoint address to an index for our ep array */
 #define EP2I(ep_address) (((ep_address & 0x80) >> 3) | (ep_address & 0x0f))
@@ -69,7 +69,7 @@ struct usbredirtransfer {
     struct libusb_transfer *transfer; /* Back pointer to the libusb transfer */
     uint64_t id;
     uint8_t cancelled;
-    int iso_packet_idx;
+    int packet_idx;
     union {
         struct usb_redir_control_packet_header control_packet;
         struct usb_redir_bulk_packet_header bulk_packet;
@@ -85,13 +85,13 @@ struct usbredirhost_ep {
     uint8_t interval;
     uint8_t interface;
     uint8_t warn_on_drop;
-    uint8_t iso_started;
-    uint8_t iso_pkts_per_transfer;
-    uint8_t iso_transfer_count;
-    int iso_out_idx;
-    int iso_drop_packets;
+    uint8_t stream_started;
+    uint8_t pkts_per_transfer;
+    uint8_t transfer_count;
+    int out_idx;
+    int drop_packets;
     int max_packetsize;
-    struct usbredirtransfer *iso_transfer[MAX_ISO_TRANSFER_COUNT];
+    struct usbredirtransfer *transfer[MAX_TRANSFER_COUNT];
     struct usbredirtransfer *interrupt_in_transfer;
 };
 
@@ -196,11 +196,9 @@ static void usbredirhost_interrupt_packet(void *priv, uint64_t id,
     struct usb_redir_interrupt_packet_header *interrupt_packet,
     uint8_t *data, int data_len);
 
-static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
-    uint8_t ep, uint8_t pkts_per_transfer, uint8_t transfer_count);
-static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
-    uint8_t ep);
-static void usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
+static int usbredirhost_alloc_stream(struct usbredirhost *host, uint8_t ep,
+    uint8_t type, uint8_t pkts_per_transfer, uint8_t transfer_count);
+static void usbredirhost_cancel_stream_unlocked(struct usbredirhost *host,
     uint8_t ep);
 static void usbredirhost_cancel_interrupt_in_transfer_unlocked(
     struct usbredirhost *host, uint8_t ep);
@@ -855,7 +853,7 @@ static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host)
     for (i = 0; i < MAX_ENDPOINTS; i++) {
         switch (host->endpoint[i].type) {
         case usb_redir_type_iso:
-            usbredirhost_cancel_iso_stream_unlocked(host, I2EP(i));
+            usbredirhost_cancel_stream_unlocked(host, I2EP(i));
             break;
         case usb_redir_type_interrupt:
             if (i & 0x10)
@@ -890,7 +888,7 @@ static void usbredirhost_cancel_pending_urbs_on_interface(
 
         switch (host->endpoint[EP2I(ep)].type) {
         case usb_redir_type_iso:
-            usbredirhost_cancel_iso_stream_unlocked(host, ep);
+            usbredirhost_cancel_stream_unlocked(host, ep);
             break;
         case usb_redir_type_interrupt:
             if (ep & LIBUSB_ENDPOINT_IN)
@@ -955,21 +953,21 @@ static void usbredirhost_send_iso_status(struct usbredirhost *host,
 }
 
 /* Called from both parser read and packet complete callbacks */
-static int usbredirhost_submit_iso_transfer_unlocked(struct usbredirhost *host,
-    struct usbredirtransfer *transfer)
+static int usbredirhost_submit_stream_transfer_unlocked(
+    struct usbredirhost *host, struct usbredirtransfer *transfer)
 {
     int r;
 
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
         uint8_t ep = transfer->transfer->endpoint;
-        ERROR("error submitting iso transfer on ep %02X: %s, stopping stream",
+        ERROR("error submitting transfer on ep %02X: %s, stopping stream",
               ep, libusb_error_name(r));
-        usbredirhost_cancel_iso_stream_unlocked(host, ep);
+        usbredirhost_cancel_stream_unlocked(host, ep);
         return libusb_status_or_error_to_redir_status(host, r);
     }
 
-    transfer->iso_packet_idx = ISO_SUBMITTED_IDX;
+    transfer->packet_idx = SUBMITTED_IDX;
     return usb_redir_success;
 }
 
@@ -998,33 +996,33 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
            and in case of an input stream resubmit the transfers */
         WARNING("iso stream on endpoint %02X stalled, clearing stall",
                 (unsigned int)ep);
-        pkts_per_transfer = host->endpoint[EP2I(ep)].iso_pkts_per_transfer;
-        transfer_count = host->endpoint[EP2I(ep)].iso_transfer_count;
-        usbredirhost_cancel_iso_stream_unlocked(host, ep);
+        pkts_per_transfer = host->endpoint[EP2I(ep)].pkts_per_transfer;
+        transfer_count = host->endpoint[EP2I(ep)].transfer_count;
+        usbredirhost_cancel_stream_unlocked(host, ep);
         r = libusb_clear_halt(host->handle, ep);
         if (r < 0) {
             usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
             return 2;
         }
-        status = usbredirhost_alloc_iso_stream(host, ep, pkts_per_transfer,
-                                               transfer_count);
+        status = usbredirhost_alloc_stream(host, ep, usb_redir_type_iso,
+                                           pkts_per_transfer, transfer_count);
         if (status != usb_redir_success) {
             usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
             return 2;
         }
         if (ep & LIBUSB_ENDPOINT_IN) {
-            for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
-                host->endpoint[EP2I(ep)].iso_transfer[i]->id =
-                    i * host->endpoint[EP2I(ep)].iso_pkts_per_transfer;
-                status = usbredirhost_submit_iso_transfer_unlocked(host,
-                                    host->endpoint[EP2I(ep)].iso_transfer[i]);
+            for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count; i++) {
+                host->endpoint[EP2I(ep)].transfer[i]->id =
+                    i * host->endpoint[EP2I(ep)].pkts_per_transfer;
+                status = usbredirhost_submit_stream_transfer_unlocked(host,
+                                       host->endpoint[EP2I(ep)].transfer[i]);
                 if (status != usb_redir_success) {
                     usbredirhost_send_iso_status(host, id, ep,
                                                  usb_redir_stall);
                     return 2;
                 }
             }
-            host->endpoint[EP2I(ep)].iso_started = 1;
+            host->endpoint[EP2I(ep)].stream_started = 1;
         }
         /* No iso status message, stall successfully cleared */
         return 2;
@@ -1057,7 +1055,7 @@ static void LIBUSB_CALL usbredirhost_iso_packet_complete(
     }
 
     /* Mark transfer completed (iow not submitted) */
-    transfer->iso_packet_idx = 0;
+    transfer->packet_idx = 0;
 
     /* Check overal transfer status */
     r = libusb_transfer->status;
@@ -1138,27 +1136,27 @@ static void LIBUSB_CALL usbredirhost_iso_packet_complete(
        get resubmitted when they have all their packets filled with data) */
     if (ep & LIBUSB_ENDPOINT_IN) {
 resubmit:
-        transfer->id += (host->endpoint[EP2I(ep)].iso_transfer_count - 1) *
+        transfer->id += (host->endpoint[EP2I(ep)].transfer_count - 1) *
                         libusb_transfer->num_iso_packets;
-        status = usbredirhost_submit_iso_transfer_unlocked(host, transfer);
+        status = usbredirhost_submit_stream_transfer_unlocked(host, transfer);
         if (status != usb_redir_success) {
             usbredirhost_send_iso_status(host, transfer->id, ep,
                                          usb_redir_stall);
         }
     } else {
-        for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
-            transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
-            if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX)
+        for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count; i++) {
+            transfer = host->endpoint[EP2I(ep)].transfer[i];
+            if (transfer->packet_idx == SUBMITTED_IDX)
                 break;
         }
-        if (i == host->endpoint[EP2I(ep)].iso_transfer_count) {
+        if (i == host->endpoint[EP2I(ep)].transfer_count) {
             DEBUG("underflow of iso out queue on ep: %02X", ep);
             /* Re-fill buffers before submitting urbs again */
-            for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++)
-                host->endpoint[EP2I(ep)].iso_transfer[i]->iso_packet_idx = 0;
-            host->endpoint[EP2I(ep)].iso_out_idx = 0;
-            host->endpoint[EP2I(ep)].iso_started = 0;
-            host->endpoint[EP2I(ep)].iso_drop_packets = 0;
+            for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count; i++)
+                host->endpoint[EP2I(ep)].transfer[i]->packet_idx = 0;
+            host->endpoint[EP2I(ep)].out_idx = 0;
+            host->endpoint[EP2I(ep)].stream_started = 0;
+            host->endpoint[EP2I(ep)].drop_packets = 0;
         }
     }
 unlock:
@@ -1166,36 +1164,39 @@ unlock:
     FLUSH(host);
 }
 
-static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
-    uint8_t ep, uint8_t pkts_per_transfer, uint8_t transfer_count)
+static int usbredirhost_alloc_stream(struct usbredirhost *host, uint8_t ep,
+    uint8_t type, uint8_t pkts_per_transfer, uint8_t transfer_count)
 {
     int i, buf_size;
     unsigned char *buffer;
 
-    if (host->endpoint[EP2I(ep)].type != usb_redir_type_iso) {
-        ERROR("error start iso stream on non iso endpoint");
+    if (host->endpoint[EP2I(ep)].type != type) {
+        ERROR("error start stream type %d on type %d endpoint",
+              type, host->endpoint[EP2I(ep)].type);
         return usb_redir_inval;
     }
 
     if (   pkts_per_transfer < 1 ||
-           pkts_per_transfer > MAX_ISO_PACKETS_PER_TRANSFER ||
+           pkts_per_transfer > MAX_PACKETS_PER_TRANSFER ||
            transfer_count < 1 ||
-           transfer_count > MAX_ISO_TRANSFER_COUNT) {
-        ERROR("error start iso stream pkts_per_urb or no_urbs invalid");
+           transfer_count > MAX_TRANSFER_COUNT) {
+        ERROR("error start stream type %d invalid parameters", type);
         return usb_redir_inval;
     }
 
-    if (host->endpoint[EP2I(ep)].iso_transfer_count) {
-        ERROR("error received iso start for already started iso stream");
+    if (host->endpoint[EP2I(ep)].transfer_count) {
+        ERROR("error received start type %d for already started stream", type);
         return usb_redir_inval;
     }
 
-    DEBUG("allocating iso stream ep %02X packet-size %d pkts %d urbs %d",
-          ep, host->endpoint[EP2I(ep)].max_packetsize, pkts_per_transfer, transfer_count);
+    DEBUG("allocating stream ep %02X type %d packet-size %d pkts %d urbs %d",
+          ep, type, host->endpoint[EP2I(ep)].max_packetsize,
+          pkts_per_transfer, transfer_count);
     for (i = 0; i < transfer_count; i++) {
-        host->endpoint[EP2I(ep)].iso_transfer[i] =
-            usbredirhost_alloc_transfer(host, pkts_per_transfer);
-        if (!host->endpoint[EP2I(ep)].iso_transfer[i]) {
+        host->endpoint[EP2I(ep)].transfer[i] =
+            usbredirhost_alloc_transfer(host, (type == usb_redir_type_iso) ?
+                                              pkts_per_transfer : 0);
+        if (!host->endpoint[EP2I(ep)].transfer[i]) {
             goto alloc_error;
         }
 
@@ -1204,61 +1205,65 @@ static int usbredirhost_alloc_iso_stream(struct usbredirhost *host,
         if (!buffer) {
             goto alloc_error;
         }
-        libusb_fill_iso_transfer(
-            host->endpoint[EP2I(ep)].iso_transfer[i]->transfer, host->handle,
-            ep, buffer, buf_size, pkts_per_transfer,
-            usbredirhost_iso_packet_complete,
-            host->endpoint[EP2I(ep)].iso_transfer[i], ISO_TIMEOUT);
-        libusb_set_iso_packet_lengths(
-            host->endpoint[EP2I(ep)].iso_transfer[i]->transfer,
-            host->endpoint[EP2I(ep)].max_packetsize);
+        switch (type) {
+        case usb_redir_type_iso:
+            libusb_fill_iso_transfer(
+                host->endpoint[EP2I(ep)].transfer[i]->transfer, host->handle,
+                ep, buffer, buf_size, pkts_per_transfer,
+                usbredirhost_iso_packet_complete,
+                host->endpoint[EP2I(ep)].transfer[i], ISO_TIMEOUT);
+            libusb_set_iso_packet_lengths(
+                host->endpoint[EP2I(ep)].transfer[i]->transfer,
+                host->endpoint[EP2I(ep)].max_packetsize);
+            break;
+        }
     }
-    host->endpoint[EP2I(ep)].iso_out_idx = 0;
-    host->endpoint[EP2I(ep)].iso_drop_packets = 0;
-    host->endpoint[EP2I(ep)].iso_pkts_per_transfer = pkts_per_transfer;
-    host->endpoint[EP2I(ep)].iso_transfer_count = transfer_count;
+    host->endpoint[EP2I(ep)].out_idx = 0;
+    host->endpoint[EP2I(ep)].drop_packets = 0;
+    host->endpoint[EP2I(ep)].pkts_per_transfer = pkts_per_transfer;
+    host->endpoint[EP2I(ep)].transfer_count = transfer_count;
 
     return usb_redir_success;
 
 alloc_error:
-    ERROR("out of memory allocating iso stream buffers");
+    ERROR("out of memory allocating type %d stream buffers", type);
     do {
-        usbredirhost_free_transfer(host->endpoint[EP2I(ep)].iso_transfer[i]);
-        host->endpoint[EP2I(ep)].iso_transfer[i] = NULL;
+        usbredirhost_free_transfer(host->endpoint[EP2I(ep)].transfer[i]);
+        host->endpoint[EP2I(ep)].transfer[i] = NULL;
         i--;
     } while (i >= 0);
     return usb_redir_ioerror;
 }
 
-static void usbredirhost_cancel_iso_stream_unlocked(struct usbredirhost *host,
+static void usbredirhost_cancel_stream_unlocked(struct usbredirhost *host,
     uint8_t ep)
 {
     int i;
     struct usbredirtransfer *transfer;
 
-    for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
-        transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
-        if (transfer->iso_packet_idx == ISO_SUBMITTED_IDX) {
+    for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count; i++) {
+        transfer = host->endpoint[EP2I(ep)].transfer[i];
+        if (transfer->packet_idx == SUBMITTED_IDX) {
             libusb_cancel_transfer(transfer->transfer);
             transfer->cancelled = 1;
             host->cancels_pending++;
         } else {
             usbredirhost_free_transfer(transfer);
         }
-        host->endpoint[EP2I(ep)].iso_transfer[i] = NULL;
+        host->endpoint[EP2I(ep)].transfer[i] = NULL;
     }
-    host->endpoint[EP2I(ep)].iso_out_idx = 0;
-    host->endpoint[EP2I(ep)].iso_started = 0;
-    host->endpoint[EP2I(ep)].iso_drop_packets = 0;
-    host->endpoint[EP2I(ep)].iso_pkts_per_transfer = 0;
-    host->endpoint[EP2I(ep)].iso_transfer_count = 0;
+    host->endpoint[EP2I(ep)].out_idx = 0;
+    host->endpoint[EP2I(ep)].stream_started = 0;
+    host->endpoint[EP2I(ep)].drop_packets = 0;
+    host->endpoint[EP2I(ep)].pkts_per_transfer = 0;
+    host->endpoint[EP2I(ep)].transfer_count = 0;
 }
 
-static void usbredirhost_cancel_iso_stream(struct usbredirhost *host,
+static void usbredirhost_cancel_stream(struct usbredirhost *host,
     uint8_t ep)
 {
     LOCK(host);
-    usbredirhost_cancel_iso_stream_unlocked(host, ep);
+    usbredirhost_cancel_stream_unlocked(host, ep);
     UNLOCK(host);
 }
 
@@ -1627,7 +1632,7 @@ static void usbredirhost_start_iso_stream(void *priv, uint64_t id,
         goto leave;
     }
 
-    status = usbredirhost_alloc_iso_stream(host, ep,
+    status = usbredirhost_alloc_stream(host, ep, usb_redir_type_iso,
                    start_iso_stream->pkts_per_urb, start_iso_stream->no_urbs);
     if (status != usb_redir_success) {
         status = usb_redir_stall;
@@ -1638,17 +1643,17 @@ static void usbredirhost_start_iso_stream(void *priv, uint64_t id,
 
     /* For input endpoints submit the transfers now */
     if (start_iso_stream->endpoint & LIBUSB_ENDPOINT_IN) {
-        for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count; i++) {
-            host->endpoint[EP2I(ep)].iso_transfer[i]->id =
-                i * host->endpoint[EP2I(ep)].iso_pkts_per_transfer;
-            status = usbredirhost_submit_iso_transfer_unlocked(host,
-                         host->endpoint[EP2I(ep)].iso_transfer[i]);
+        for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count; i++) {
+            host->endpoint[EP2I(ep)].transfer[i]->id =
+                i * host->endpoint[EP2I(ep)].pkts_per_transfer;
+            status = usbredirhost_submit_stream_transfer_unlocked(host,
+                                   host->endpoint[EP2I(ep)].transfer[i]);
             if (status != usb_redir_success) {
                 status = usb_redir_stall;
                 goto leave;
             }
         }
-        host->endpoint[EP2I(ep)].iso_started = 1;
+        host->endpoint[EP2I(ep)].stream_started = 1;
     }
 leave:
     UNLOCK(host);
@@ -1668,7 +1673,7 @@ static void usbredirhost_stop_iso_stream(void *priv, uint64_t id,
         goto exit;
     }
 
-    usbredirhost_cancel_iso_stream(host, ep);
+    usbredirhost_cancel_stream(host, ep);
 
 exit:
     usbredirhost_send_iso_status(host, id, ep, status);
@@ -2121,7 +2126,7 @@ static void usbredirhost_iso_packet(void *priv, uint64_t id,
         goto leave;
     }
 
-    if (host->endpoint[EP2I(ep)].iso_transfer_count == 0) {
+    if (host->endpoint[EP2I(ep)].transfer_count == 0) {
         ERROR("error received iso out packet for non started iso stream");
         status = usb_redir_inval;
         goto leave;
@@ -2133,21 +2138,21 @@ static void usbredirhost_iso_packet(void *priv, uint64_t id,
         goto leave;
     }
 
-    if (host->endpoint[EP2I(ep)].iso_drop_packets) {
-        host->endpoint[EP2I(ep)].iso_drop_packets--;
+    if (host->endpoint[EP2I(ep)].drop_packets) {
+        host->endpoint[EP2I(ep)].drop_packets--;
         goto leave;
     }
 
-    i = host->endpoint[EP2I(ep)].iso_out_idx;
-    transfer = host->endpoint[EP2I(ep)].iso_transfer[i];
-    j = transfer->iso_packet_idx;
-    if (j == ISO_SUBMITTED_IDX) {
+    i = host->endpoint[EP2I(ep)].out_idx;
+    transfer = host->endpoint[EP2I(ep)].transfer[i];
+    j = transfer->packet_idx;
+    if (j == SUBMITTED_IDX) {
         DEBUG("overflow of iso out queue on ep: %02X, dropping packet", ep);
         /* Since we're interupting the stream anyways, drop enough packets to
            get back to our target buffer size */
-        host->endpoint[EP2I(ep)].iso_drop_packets =
-                     (host->endpoint[EP2I(ep)].iso_pkts_per_transfer *
-                      host->endpoint[EP2I(ep)].iso_transfer_count) / 2;
+        host->endpoint[EP2I(ep)].drop_packets =
+                     (host->endpoint[EP2I(ep)].pkts_per_transfer *
+                      host->endpoint[EP2I(ep)].transfer_count) / 2;
         goto leave;
     }
 
@@ -2162,17 +2167,18 @@ static void usbredirhost_iso_packet(void *priv, uint64_t id,
            ep, i, j, data_len, transfer->id);
 
     j++;
-    transfer->iso_packet_idx = j;
-    if (j == host->endpoint[EP2I(ep)].iso_pkts_per_transfer) {
-        i = (i + 1) % host->endpoint[EP2I(ep)].iso_transfer_count;
-        host->endpoint[EP2I(ep)].iso_out_idx = i;
+    transfer->packet_idx = j;
+    if (j == host->endpoint[EP2I(ep)].pkts_per_transfer) {
+        i = (i + 1) % host->endpoint[EP2I(ep)].transfer_count;
+        host->endpoint[EP2I(ep)].out_idx = i;
         j = 0;
     }
 
-    if (host->endpoint[EP2I(ep)].iso_started) {
-        if (transfer->iso_packet_idx ==
-                host->endpoint[EP2I(ep)].iso_pkts_per_transfer) {
-            status = usbredirhost_submit_iso_transfer_unlocked(host, transfer);
+    if (host->endpoint[EP2I(ep)].stream_started) {
+        if (transfer->packet_idx ==
+                host->endpoint[EP2I(ep)].pkts_per_transfer) {
+            status = usbredirhost_submit_stream_transfer_unlocked(host,
+                                                                  transfer);
             if (status != usb_redir_success) {
                 status = usb_redir_stall;
                 goto leave;
@@ -2181,21 +2187,21 @@ static void usbredirhost_iso_packet(void *priv, uint64_t id,
     } else {
         /* We've not started the stream (submitted some transfers) yet,
            do so once we have half our buffers filled */
-        int available = i * host->endpoint[EP2I(ep)].iso_pkts_per_transfer + j;
-        int needed = (host->endpoint[EP2I(ep)].iso_pkts_per_transfer *
-                      host->endpoint[EP2I(ep)].iso_transfer_count) / 2;
+        int available = i * host->endpoint[EP2I(ep)].pkts_per_transfer + j;
+        int needed = (host->endpoint[EP2I(ep)].pkts_per_transfer *
+                      host->endpoint[EP2I(ep)].transfer_count) / 2;
         if (available == needed) {
             DEBUG("iso-in starting stream on ep %02X", ep);
-            for (i = 0; i < host->endpoint[EP2I(ep)].iso_transfer_count / 2;
+            for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count / 2;
                     i++) {
-                status = usbredirhost_submit_iso_transfer_unlocked(host,
-                                    host->endpoint[EP2I(ep)].iso_transfer[i]);
+                status = usbredirhost_submit_stream_transfer_unlocked(host,
+                                       host->endpoint[EP2I(ep)].transfer[i]);
                 if (status != usb_redir_success) {
                     status = usb_redir_stall;
                     goto leave;
                 }
             }
-            host->endpoint[EP2I(ep)].iso_started = 1;
+            host->endpoint[EP2I(ep)].stream_started = 1;
         }
     }
 
