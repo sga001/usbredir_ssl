@@ -881,6 +881,8 @@ static int usbredirhost_submit_stream_transfer_unlocked(
 {
     int r;
 
+    host->reset = 0;
+
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
         uint8_t ep = transfer->transfer->endpoint;
@@ -979,6 +981,11 @@ static int usbredirhost_alloc_stream(struct usbredirhost *host, uint8_t ep,
     host->endpoint[EP2I(ep)].drop_packets = 0;
     host->endpoint[EP2I(ep)].pkts_per_transfer = pkts_per_transfer;
     host->endpoint[EP2I(ep)].transfer_count = transfer_count;
+
+    /* For input endpoints submit the transfers now */
+    if (ep & LIBUSB_ENDPOINT_IN) {
+        return usbredirhost_start_stream_unlocked(host, ep);
+    }
 
     return usb_redir_success;
 
@@ -1140,16 +1147,7 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
                                            pkts_per_transfer, transfer_count);
         if (status != usb_redir_success) {
             usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
-            return 2;
         }
-        if (ep & LIBUSB_ENDPOINT_IN) {
-            status = usbredirhost_start_stream_unlocked(host, ep);
-            if (status != usb_redir_success) {
-                usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
-                return 2;
-            }
-        }
-        /* No iso status message, stall successfully cleared */
         return 2;
     }
     case LIBUSB_TRANSFER_NO_DEVICE:
@@ -1658,14 +1656,6 @@ static void usbredirhost_start_iso_stream(void *priv, uint64_t id,
                    start_iso_stream->pkts_per_urb, start_iso_stream->no_urbs);
     if (status != usb_redir_success) {
         status = usb_redir_stall;
-        goto leave;
-    }
-
-    host->reset = 0;
-
-    /* For input endpoints submit the transfers now */
-    if (start_iso_stream->endpoint & LIBUSB_ENDPOINT_IN) {
-        status = usbredirhost_start_stream_unlocked(host, ep);
     }
 leave:
     UNLOCK(host);
