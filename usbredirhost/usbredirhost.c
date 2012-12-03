@@ -894,6 +894,31 @@ static int usbredirhost_submit_stream_transfer_unlocked(
     return usb_redir_success;
 }
 
+/* Called from both parser read and packet complete callbacks */
+static int usbredirhost_start_stream_unlocked(struct usbredirhost *host,
+    uint8_t ep)
+{
+    int i, status, count = host->endpoint[EP2I(ep)].transfer_count;
+
+    /* For out endpoints 1/2 the transfers are a buffer for usb-guest data */
+    if (!(ep & LIBUSB_ENDPOINT_IN)) {
+        count /= 2;
+    }
+    for (i = 0; i < count; i++) {
+        if (ep & LIBUSB_ENDPOINT_IN) {
+            host->endpoint[EP2I(ep)].transfer[i]->id =
+                i * host->endpoint[EP2I(ep)].pkts_per_transfer;
+        }
+        status = usbredirhost_submit_stream_transfer_unlocked(host,
+                               host->endpoint[EP2I(ep)].transfer[i]);
+        if (status != usb_redir_success) {
+            return usb_redir_stall;
+        }
+    }
+    host->endpoint[EP2I(ep)].stream_started = 1;
+    return usb_redir_success;
+}
+
 /* Called from both parser read and packet complete callbacks,
    caller must hold host-lock */
 static int usbredirhost_alloc_stream(struct usbredirhost *host, uint8_t ep,
@@ -1087,7 +1112,7 @@ static void usbredirhost_send_iso_status(struct usbredirhost *host,
 static int usbredirhost_handle_iso_status(struct usbredirhost *host,
     uint64_t id, uint8_t ep, int r)
 {
-    int i, status;
+    int status;
 
     switch (r) {
     case LIBUSB_TRANSFER_COMPLETED:
@@ -1118,18 +1143,11 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
             return 2;
         }
         if (ep & LIBUSB_ENDPOINT_IN) {
-            for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count; i++) {
-                host->endpoint[EP2I(ep)].transfer[i]->id =
-                    i * host->endpoint[EP2I(ep)].pkts_per_transfer;
-                status = usbredirhost_submit_stream_transfer_unlocked(host,
-                                       host->endpoint[EP2I(ep)].transfer[i]);
-                if (status != usb_redir_success) {
-                    usbredirhost_send_iso_status(host, id, ep,
-                                                 usb_redir_stall);
-                    return 2;
-                }
+            status = usbredirhost_start_stream_unlocked(host, ep);
+            if (status != usb_redir_success) {
+                usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
+                return 2;
             }
-            host->endpoint[EP2I(ep)].stream_started = 1;
         }
         /* No iso status message, stall successfully cleared */
         return 2;
@@ -1626,8 +1644,8 @@ static void usbredirhost_start_iso_stream(void *priv, uint64_t id,
     struct usb_redir_start_iso_stream_header *start_iso_stream)
 {
     struct usbredirhost *host = priv;
-    int i, status;
     uint8_t ep = start_iso_stream->endpoint;
+    int status;
 
     LOCK(host);
 
@@ -1647,17 +1665,7 @@ static void usbredirhost_start_iso_stream(void *priv, uint64_t id,
 
     /* For input endpoints submit the transfers now */
     if (start_iso_stream->endpoint & LIBUSB_ENDPOINT_IN) {
-        for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count; i++) {
-            host->endpoint[EP2I(ep)].transfer[i]->id =
-                i * host->endpoint[EP2I(ep)].pkts_per_transfer;
-            status = usbredirhost_submit_stream_transfer_unlocked(host,
-                                   host->endpoint[EP2I(ep)].transfer[i]);
-            if (status != usb_redir_success) {
-                status = usb_redir_stall;
-                goto leave;
-            }
-        }
-        host->endpoint[EP2I(ep)].stream_started = 1;
+        status = usbredirhost_start_stream_unlocked(host, ep);
     }
 leave:
     UNLOCK(host);
@@ -2196,16 +2204,7 @@ static void usbredirhost_iso_packet(void *priv, uint64_t id,
                       host->endpoint[EP2I(ep)].transfer_count) / 2;
         if (available == needed) {
             DEBUG("iso-in starting stream on ep %02X", ep);
-            for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count / 2;
-                    i++) {
-                status = usbredirhost_submit_stream_transfer_unlocked(host,
-                                       host->endpoint[EP2I(ep)].transfer[i]);
-                if (status != usb_redir_success) {
-                    status = usb_redir_stall;
-                    goto leave;
-                }
-            }
-            host->endpoint[EP2I(ep)].stream_started = 1;
+            status = usbredirhost_start_stream_unlocked(host, ep);
         }
     }
 
