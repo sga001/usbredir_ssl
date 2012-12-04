@@ -183,6 +183,10 @@ static void usbredirhost_filter_reject(void *priv);
 static void usbredirhost_filter_filter(void *priv,
     struct usbredirfilter_rule *rules, int rules_count);
 static void usbredirhost_device_disconnect_ack(void *priv);
+static void usbredirhost_start_bulk_receiving(void *priv, uint64_t id,
+    struct usb_redir_start_bulk_receiving_header *start_bulk_receiving);
+static void usbredirhost_stop_bulk_receiving(void *priv, uint64_t id,
+    struct usb_redir_stop_bulk_receiving_header *stop_bulk_receiving);
 static void usbredirhost_control_packet(void *priv, uint64_t id,
     struct usb_redir_control_packet_header *control_packet,
     uint8_t *data, int data_len);
@@ -632,6 +636,10 @@ struct usbredirhost *usbredirhost_open_full(
     host->parser->filter_filter_func = usbredirhost_filter_filter;
     host->parser->device_disconnect_ack_func =
         usbredirhost_device_disconnect_ack;
+    host->parser->start_bulk_receiving_func =
+        usbredirhost_start_bulk_receiving;
+    host->parser->stop_bulk_receiving_func =
+        usbredirhost_stop_bulk_receiving;
     host->parser->control_packet_func = usbredirhost_control_packet;
     host->parser->bulk_packet_func = usbredirhost_bulk_packet;
     host->parser->iso_packet_func = usbredirhost_iso_packet;
@@ -656,6 +664,7 @@ struct usbredirhost *usbredirhost_open_full(
     usbredirparser_caps_set_cap(caps, usb_redir_cap_ep_info_max_packet_size);
     usbredirparser_caps_set_cap(caps, usb_redir_cap_64bits_ids);
     usbredirparser_caps_set_cap(caps, usb_redir_cap_32bits_bulk_length);
+    usbredirparser_caps_set_cap(caps, usb_redir_cap_bulk_receiving);
 
     usbredirparser_init(host->parser, version, caps, USB_REDIR_CAPS_SIZE,
                         parser_flags);
@@ -887,6 +896,15 @@ static void usbredirhost_send_stream_status(struct usbredirhost *host,
         usbredirparser_send_iso_stream_status(host->parser, id, &iso_status);
         break;
     }
+    case usb_redir_type_bulk: {
+        struct usb_redir_bulk_receiving_status_header bulk_status = {
+            .endpoint = ep,
+            .status   = status,
+        };
+        usbredirparser_send_bulk_receiving_status(host->parser, id,
+                                                  &bulk_status);
+        break;
+    }
     case usb_redir_type_interrupt: {
         struct usb_redir_interrupt_receiving_status_header interrupt_status = {
             .endpoint = ep,
@@ -926,6 +944,16 @@ static void usbredirhost_send_stream_data(struct usbredirhost *host,
         };
         usbredirparser_send_iso_packet(host->parser, id, &iso_packet,
                                        data, len);
+        break;
+    }
+    case usb_redir_type_bulk: {
+        struct usb_redir_buffered_bulk_packet_header bulk_packet = {
+            .endpoint = ep,
+            .status   = status,
+            .length   = len,
+        };
+        usbredirparser_send_buffered_bulk_packet(host->parser, id,
+                                                 &bulk_packet, data, len);
         break;
     }
     case usb_redir_type_interrupt: {
@@ -1008,7 +1036,7 @@ static void usbredirhost_stop_stream(struct usbredirhost *host,
 /* Called from both parser read and packet complete callbacks */
 static void usbredirhost_alloc_stream_unlocked(struct usbredirhost *host,
     uint64_t id, uint8_t ep, uint8_t type, uint8_t pkts_per_transfer,
-    uint8_t transfer_count, int send_success)
+    int pkt_size, uint8_t transfer_count, int send_success)
 {
     int i, buf_size, status = usb_redir_success;
     unsigned char *buffer;
@@ -1026,7 +1054,9 @@ static void usbredirhost_alloc_stream_unlocked(struct usbredirhost *host,
     if (   pkts_per_transfer < 1 ||
            pkts_per_transfer > MAX_PACKETS_PER_TRANSFER ||
            transfer_count < 1 ||
-           transfer_count > MAX_TRANSFER_COUNT) {
+           transfer_count > MAX_TRANSFER_COUNT ||
+           host->endpoint[EP2I(ep)].max_packetsize == 0 ||
+           (pkt_size % host->endpoint[EP2I(ep)].max_packetsize) != 0) {
         ERROR("error start stream type %d invalid parameters", type);
         goto error;
     }
@@ -1038,8 +1068,7 @@ static void usbredirhost_alloc_stream_unlocked(struct usbredirhost *host,
     }
 
     DEBUG("allocating stream ep %02X type %d packet-size %d pkts %d urbs %d",
-          ep, type, host->endpoint[EP2I(ep)].max_packetsize,
-          pkts_per_transfer, transfer_count);
+          ep, type, pkt_size, pkts_per_transfer, transfer_count);
     for (i = 0; i < transfer_count; i++) {
         host->endpoint[EP2I(ep)].transfer[i] =
             usbredirhost_alloc_transfer(host, (type == usb_redir_type_iso) ?
@@ -1048,7 +1077,7 @@ static void usbredirhost_alloc_stream_unlocked(struct usbredirhost *host,
             goto alloc_error;
         }
 
-        buf_size = host->endpoint[EP2I(ep)].max_packetsize * pkts_per_transfer;
+        buf_size = pkt_size * pkts_per_transfer;
         buffer = malloc(buf_size);
         if (!buffer) {
             goto alloc_error;
@@ -1061,8 +1090,13 @@ static void usbredirhost_alloc_stream_unlocked(struct usbredirhost *host,
                 usbredirhost_iso_packet_complete,
                 host->endpoint[EP2I(ep)].transfer[i], ISO_TIMEOUT);
             libusb_set_iso_packet_lengths(
-                host->endpoint[EP2I(ep)].transfer[i]->transfer,
-                host->endpoint[EP2I(ep)].max_packetsize);
+                host->endpoint[EP2I(ep)].transfer[i]->transfer, pkt_size);
+            break;
+        case usb_redir_type_bulk:
+            libusb_fill_bulk_transfer(
+                host->endpoint[EP2I(ep)].transfer[i]->transfer, host->handle,
+                ep, buffer, buf_size, usbredirhost_buffered_packet_complete,
+                host->endpoint[EP2I(ep)].transfer[i], BULK_TIMEOUT);
             break;
         case usb_redir_type_interrupt:
             libusb_fill_interrupt_transfer(
@@ -1100,11 +1134,11 @@ error:
 
 static void usbredirhost_alloc_stream(struct usbredirhost *host,
     uint64_t id, uint8_t ep, uint8_t type, uint8_t pkts_per_transfer,
-    uint8_t transfer_count, int send_success)
+    int pkt_size, uint8_t transfer_count, int send_success)
 {
     LOCK(host);
     usbredirhost_alloc_stream_unlocked(host, id, ep, type, pkts_per_transfer,
-                                       transfer_count, send_success);
+                                       pkt_size, transfer_count, send_success);
     UNLOCK(host);
 }
 
@@ -1114,6 +1148,8 @@ static void usbredirhost_clear_stream_stall_unlocked(
     int r;
     uint8_t pkts_per_transfer = host->endpoint[EP2I(ep)].pkts_per_transfer;
     uint8_t transfer_count    = host->endpoint[EP2I(ep)].transfer_count;
+    int pkt_size = host->endpoint[EP2I(ep)].transfer[0]->transfer->length /
+                   pkts_per_transfer;
 
     WARNING("buffered stream on endpoint %02X stalled, clearing stall", ep);
 
@@ -1125,7 +1161,8 @@ static void usbredirhost_clear_stream_stall_unlocked(
     }
     usbredirhost_alloc_stream_unlocked(host, id, ep,
                                        host->endpoint[EP2I(ep)].type,
-                                       pkts_per_transfer, transfer_count, 0);
+                                       pkts_per_transfer, pkt_size,
+                                       transfer_count, 0);
 }
 
 /**************************************************************************/
@@ -1587,6 +1624,7 @@ static void usbredirhost_start_iso_stream(void *priv, uint64_t id,
 
     usbredirhost_alloc_stream(host, id, ep, usb_redir_type_iso,
                               start_iso_stream->pkts_per_urb,
+                              host->endpoint[EP2I(ep)].max_packetsize,
                               start_iso_stream->no_urbs, 1);
     FLUSH(host);
 }
@@ -1604,6 +1642,7 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint64_t id,
     uint8_t ep = start_interrupt_receiving->endpoint;
 
     usbredirhost_alloc_stream(host, id, ep, usb_redir_type_interrupt, 1,
+                              host->endpoint[EP2I(ep)].max_packetsize,
                               INTERRUPT_TRANSFER_COUNT, 1);
     FLUSH(host);
 }
@@ -1660,6 +1699,24 @@ static void usbredirhost_device_disconnect_ack(void *priv)
 
     if (host->connect_pending)
         usbredirhost_send_device_connect(host);
+}
+
+static void usbredirhost_start_bulk_receiving(void *priv, uint64_t id,
+    struct usb_redir_start_bulk_receiving_header *start_bulk_receiving)
+{
+    struct usbredirhost *host = priv;
+    uint8_t ep = start_bulk_receiving->endpoint;
+
+    usbredirhost_alloc_stream(host, id, ep, usb_redir_type_bulk, 1,
+                              start_bulk_receiving->bytes_per_transfer,
+                              start_bulk_receiving->no_transfers, 1);
+    FLUSH(host);
+}
+
+static void usbredirhost_stop_bulk_receiving(void *priv, uint64_t id,
+    struct usb_redir_stop_bulk_receiving_header *stop_bulk_receiving)
+{
+    usbredirhost_stop_stream(priv, id, stop_bulk_receiving->endpoint);
 }
 
 /**************************************************************************/

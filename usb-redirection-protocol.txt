@@ -717,6 +717,8 @@ usb-device. Upon completion of a transfer the usb-host will send an
 usb_redir_buffered_bulk_packet with the received data to the usb-guest,
 and immediately re-submit the completed transfer.
 
+Note bytes_per_transfer must be a multiple of the endpoints max_packet_size.
+
 Note this packet should only be send to usb-hosts with the
 usb_redir_cap_bulk_receiving capability.
 
