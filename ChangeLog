@@ -8,6 +8,7 @@ usbredir-0.6   28 November 2012
  -queue multiple transfers for interrupt receiving
  -add support for buffered bulk input
  -only apply mult to max-packet-size for isoc high speed endpoints
+ -add a do-not-reset device blacklist, populate it with 1210:001c
 
 usbredir-0.5.3  7 October 2012
 ------------------------------

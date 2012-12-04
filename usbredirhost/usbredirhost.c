@@ -42,6 +42,9 @@
 /* Special packet_idx value indicating a submitted transfer */
 #define SUBMITTED_IDX             -1
 
+/* quirk flags */
+#define QUIRK_DO_NOT_RESET    0x01
+
 /* Macros to go from an endpoint address to an index for our ep array */
 #define EP2I(ep_address) (((ep_address & 0x80) >> 3) | (ep_address & 0x0f))
 #define I2EP(i) (((i & 0x10) << 3) | (i & 0x0f))
@@ -112,6 +115,7 @@ struct usbredirhost {
     libusb_device_handle *handle;
     struct libusb_device_descriptor desc;
     struct libusb_config_descriptor *config;
+    int quirks;
     int restore_config;
     int claimed;
     int reset;
@@ -125,6 +129,16 @@ struct usbredirhost {
     struct usbredirtransfer transfers_head;
     struct usbredirfilter_rule *filter_rules;
     int filter_rules_count;
+};
+
+struct usbredirhost_dev_ids {
+    int vendor_id;
+    int product_id;
+};
+
+static const struct usbredirhost_dev_ids usbredirhost_reset_blacklist[] = {
+    { 0x1210, 0x001c },
+    { -1, -1 } /* Terminating Entry */
 };
 
 static void
@@ -699,10 +713,29 @@ void usbredirhost_close(struct usbredirhost *host)
     free(host);
 }
 
+static int usbredirhost_reset_device(struct usbredirhost *host)
+{
+    int r;
+
+    if (host->quirks & QUIRK_DO_NOT_RESET) {
+        return 0;
+    }
+
+    r = libusb_reset_device(host->handle);
+    if (r != 0) {
+        ERROR("error resetting device: %s", libusb_error_name(r));
+        usbredirhost_clear_device(host);
+        return r;
+    }
+
+    host->reset = 1;
+    return 0;
+}
+
 int usbredirhost_set_device(struct usbredirhost *host,
                              libusb_device_handle *usb_dev_handle)
 {
-    int r, status;
+    int i, r, status;
 
     usbredirhost_clear_device(host);
 
@@ -718,15 +751,21 @@ int usbredirhost_set_device(struct usbredirhost *host,
         return status;
     }
 
+    for (i = 0; usbredirhost_reset_blacklist[i].vendor_id != -1; i++) {
+        if (host->desc.idVendor == usbredirhost_reset_blacklist[i].vendor_id &&
+            host->desc.idProduct ==
+                                usbredirhost_reset_blacklist[i].product_id) {
+            host->quirks |= QUIRK_DO_NOT_RESET;
+            break;
+        }
+    }
+
     /* The first thing almost any usb-guest does is a (slow) device-reset
        so lets do that before hand */
-    r = libusb_reset_device(host->handle);
+    r = usbredirhost_reset_device(host);
     if (r != 0) {
-        ERROR("error resetting device: %s", libusb_error_name(r));
-        usbredirhost_clear_device(host);
         return libusb_status_or_error_to_redir_status(host, r);
     }
-    host->reset = 1;
 
     usbredirhost_send_device_connect(host);
 
@@ -763,6 +802,7 @@ static void usbredirhost_clear_device(struct usbredirhost *host)
     }
 
     host->connect_pending = 0;
+    host->quirks = 0;
     host->dev = NULL;
 
     usbredirhost_handle_disconnect(host);
@@ -1451,12 +1491,8 @@ static void usbredirhost_reset(void *priv)
         return;
     }
 
-    r = libusb_reset_device(host->handle);
-    if (r == 0) {
-        host->reset = 1;
-    } else {
-        ERROR("error resetting device: %s", libusb_error_name(r));
-        usbredirhost_clear_device(host);
+    r = usbredirhost_reset_device(host);
+    if (r != 0) {
         host->read_status = usbredirhost_read_device_lost;
     }
 }
