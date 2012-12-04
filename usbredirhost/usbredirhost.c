@@ -993,6 +993,18 @@ static int usbredirhost_start_stream_unlocked(struct usbredirhost *host,
     return usb_redir_success;
 }
 
+static void usbredirhost_stop_stream(struct usbredirhost *host,
+    uint64_t id, uint8_t ep)
+{
+    if (host->disconnected) {
+        return;
+    }
+
+    usbredirhost_cancel_stream(host, ep);
+    usbredirhost_send_stream_status(host, id, ep, usb_redir_success);
+    FLUSH(host);
+}
+
 /* Called from both parser read and packet complete callbacks */
 static void usbredirhost_alloc_stream_unlocked(struct usbredirhost *host,
     uint64_t id, uint8_t ep, uint8_t type, uint8_t pkts_per_transfer,
@@ -1582,20 +1594,7 @@ static void usbredirhost_start_iso_stream(void *priv, uint64_t id,
 static void usbredirhost_stop_iso_stream(void *priv, uint64_t id,
     struct usb_redir_stop_iso_stream_header *stop_iso_stream)
 {
-    struct usbredirhost *host = priv;
-    uint8_t ep = stop_iso_stream->endpoint;
-    uint8_t status = usb_redir_success;
-
-    if (host->disconnected) {
-        status = usb_redir_ioerror;
-        goto exit;
-    }
-
-    usbredirhost_cancel_stream(host, ep);
-
-exit:
-    usbredirhost_send_stream_status(host, id, ep, status);
-    FLUSH(host);
+    usbredirhost_stop_stream(priv, id, stop_iso_stream->endpoint);
 }
 
 static void usbredirhost_start_interrupt_receiving(void *priv, uint64_t id,
@@ -1612,20 +1611,7 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint64_t id,
 static void usbredirhost_stop_interrupt_receiving(void *priv, uint64_t id,
     struct usb_redir_stop_interrupt_receiving_header *stop_interrupt_receiving)
 {
-    struct usbredirhost *host = priv;
-    uint8_t ep = stop_interrupt_receiving->endpoint;
-    uint8_t status = usb_redir_success;
-
-    if (host->disconnected) {
-        status = usb_redir_ioerror;
-        goto exit;
-    }
-
-    usbredirhost_cancel_stream(host, ep);
-
-exit:
-    usbredirhost_send_stream_status(host, id, ep, status);
-    FLUSH(host);
+    usbredirhost_stop_stream(priv, id, stop_interrupt_receiving->endpoint);
 }
 
 static void usbredirhost_alloc_bulk_streams(void *priv, uint64_t id,
