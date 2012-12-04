@@ -899,6 +899,48 @@ static void usbredirhost_send_stream_status(struct usbredirhost *host,
     }
 }
 
+static void usbredirhost_send_stream_data(struct usbredirhost *host,
+    uint64_t id, uint8_t ep, uint8_t status, uint8_t *data, int len)
+{
+    /* USB-2 is max 8000 packets / sec, if we've queued up more then 0.1 sec,
+       assume our connection is not keeping up and start dropping packets. */
+    if (usbredirparser_has_data_to_write(host->parser) > 800) {
+        if (host->endpoint[EP2I(ep)].warn_on_drop) {
+            WARNING("buffered stream on endpoint %02X, connection too slow, "
+                    "dropping packets", ep);
+            host->endpoint[EP2I(ep)].warn_on_drop = 0;
+        }
+        DEBUG("buffered complete ep %02X dropping packet status %d len %d",
+              ep, status, len);
+        return;
+    }
+
+    DEBUG("buffered complete ep %02X status %d len %d", ep, status, len);
+
+    switch (host->endpoint[EP2I(ep)].type) {
+    case usb_redir_type_iso: {
+        struct usb_redir_iso_packet_header iso_packet = {
+            .endpoint = ep,
+            .status   = status,
+            .length   = len,
+        };
+        usbredirparser_send_iso_packet(host->parser, id, &iso_packet,
+                                       data, len);
+        break;
+    }
+    case usb_redir_type_interrupt: {
+        struct usb_redir_interrupt_packet_header interrupt_packet = {
+            .endpoint = ep,
+            .status   = status,
+            .length   = len,
+        };
+        usbredirparser_send_interrupt_packet(host->parser, id,
+                                             &interrupt_packet, data, len);
+        break;
+    }
+    }
+}
+
 /* Called from both parser read and packet complete callbacks */
 static int usbredirhost_submit_stream_transfer_unlocked(
     struct usbredirhost *host, struct usbredirtransfer *transfer)
@@ -1254,28 +1296,8 @@ static void LIBUSB_CALL usbredirhost_iso_packet_complete(
             goto unlock;
         }
         if (ep & LIBUSB_ENDPOINT_IN) {
-            struct usb_redir_iso_packet_header iso_packet = {
-                .endpoint = ep,
-                .status   = status,
-                .length   = len
-            };
-            /* USB-2 is max 8000 packets / sec, if we've queued up more
-               then 0.1 sec, assume our connection is not keeping up and
-               start dropping packets. */
-            if (usbredirparser_has_data_to_write(host->parser) < 800) {
-                DEBUG("iso-out ep %02X status %d len %d", ep, status, len);
-                usbredirparser_send_iso_packet(host->parser, transfer->id,
-                           &iso_packet,
-                           libusb_get_iso_packet_buffer(libusb_transfer, i),
-                           len);
-            } else {
-                if (host->endpoint[EP2I(ep)].warn_on_drop) {
-                    WARNING("iso stream on endpoint %02X, connection too slow, dropping packets", ep);
-                    host->endpoint[EP2I(ep)].warn_on_drop = 0;
-                }
-                DEBUG("iso-out ep %02X dropping packet status %d len %d",
-                      ep, status, len);
-            }
+            usbredirhost_send_stream_data(host, transfer->id, ep, status,
+                   libusb_get_iso_packet_buffer(libusb_transfer, i), len);
             transfer->id++;
         } else {
             DEBUG("iso-in complete ep %02X pkt %d len %d id %"PRIu64,
@@ -1318,13 +1340,8 @@ static void LIBUSB_CALL usbredirhost_buffered_packet_complete(
 {
     struct usbredirtransfer *transfer = libusb_transfer->user_data;
     uint8_t ep = libusb_transfer->endpoint;
-    struct usb_redir_interrupt_packet_header interrupt_packet;
     struct usbredirhost *host = transfer->host;
     int r, len = libusb_transfer->actual_length;
-    int status = libusb_status_or_error_to_redir_status(host,
-                                                    libusb_transfer->status);
-
-    DEBUG("buffered complete ep %02X status %d len %d", ep, status, len);
 
     LOCK(host);
 
@@ -1337,8 +1354,6 @@ static void LIBUSB_CALL usbredirhost_buffered_packet_complete(
     /* Mark transfer completed (iow not submitted) */
     transfer->packet_idx = 0;
 
-    usbredirhost_log_data(host, "buffered data in:",
-                          libusb_transfer->buffer, len);
     r = libusb_transfer->status;
     switch (r) {
     case LIBUSB_TRANSFER_COMPLETED:
@@ -1354,11 +1369,11 @@ static void LIBUSB_CALL usbredirhost_buffered_packet_complete(
         len = 0;
     }
 
-    interrupt_packet.endpoint = ep;
-    interrupt_packet.status   = status;
-    interrupt_packet.length   = len;
-    usbredirparser_send_interrupt_packet(host->parser, transfer->id,
-                          &interrupt_packet, transfer->transfer->buffer, len);
+    usbredirhost_send_stream_data(host, transfer->id, ep,
+                           libusb_status_or_error_to_redir_status(host, r),
+                           transfer->transfer->buffer, len);
+    usbredirhost_log_data(host, "buffered data in:",
+                          transfer->transfer->buffer, len);
 
     transfer->id += host->endpoint[EP2I(ep)].transfer_count;
     usbredirhost_submit_stream_transfer_unlocked(host, transfer);
