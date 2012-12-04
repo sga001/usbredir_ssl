@@ -875,6 +875,30 @@ static void usbredirhost_cancel_stream(struct usbredirhost *host,
     UNLOCK(host);
 }
 
+static void usbredirhost_send_stream_status(struct usbredirhost *host,
+    uint64_t id, uint8_t ep, uint8_t status)
+{
+    switch (host->endpoint[EP2I(ep)].type) {
+    case usb_redir_type_iso: {
+        struct usb_redir_iso_stream_status_header iso_status = {
+            .endpoint = ep,
+            .status   = status,
+        };
+        usbredirparser_send_iso_stream_status(host->parser, id, &iso_status);
+        break;
+    }
+    case usb_redir_type_interrupt: {
+        struct usb_redir_interrupt_receiving_status_header interrupt_status = {
+            .endpoint = ep,
+            .status   = status,
+        };
+        usbredirparser_send_interrupt_receiving_status(host->parser, id,
+                                                       &interrupt_status);
+        break;
+    }
+    }
+}
+
 /* Called from both parser read and packet complete callbacks */
 static int usbredirhost_submit_stream_transfer_unlocked(
     struct usbredirhost *host, struct usbredirtransfer *transfer)
@@ -1128,16 +1152,6 @@ static void usbredirhost_log_data(struct usbredirhost *host, const char *desc,
 
 /**************************************************************************/
 
-static void usbredirhost_send_iso_status(struct usbredirhost *host,
-    uint64_t id, uint8_t endpoint, uint8_t status)
-{
-    struct usb_redir_iso_stream_status_header iso_stream_status;
-
-    iso_stream_status.endpoint = endpoint;
-    iso_stream_status.status = status;
-    usbredirparser_send_iso_stream_status(host->parser, id, &iso_stream_status);
-}
-
 /* Return value:
     0 All ok
     1 Packet borked, continue with next packet / urb
@@ -1159,7 +1173,7 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
     case LIBUSB_TRANSFER_STALL:
         status = usbredirhost_clear_stream_stall_unlocked(host, ep);
         if (status != usb_redir_success) {
-            usbredirhost_send_iso_status(host, id, ep, status);
+            usbredirhost_send_stream_status(host, id, ep, status);
         }
         return 2;
     case LIBUSB_TRANSFER_NO_DEVICE:
@@ -1210,7 +1224,7 @@ static void LIBUSB_CALL usbredirhost_iso_packet_complete(
             transfer->id += libusb_transfer->num_iso_packets;
             goto resubmit;
         } else {
-            usbredirhost_send_iso_status(host, transfer->id, ep, status);
+            usbredirhost_send_stream_status(host, transfer->id, ep, status);
             goto unlock;
         }
         break;
@@ -1230,7 +1244,8 @@ static void LIBUSB_CALL usbredirhost_iso_packet_complete(
             if (ep & LIBUSB_ENDPOINT_IN) {
                 len = 0;
             } else {
-                usbredirhost_send_iso_status(host, transfer->id, ep, status);
+                usbredirhost_send_stream_status(host, transfer->id, ep,
+                                                status);
                 goto unlock; /* We send max one iso status message per urb */
             }
             break;
@@ -1275,7 +1290,7 @@ resubmit:
                         libusb_transfer->num_iso_packets;
         status = usbredirhost_submit_stream_transfer_unlocked(host, transfer);
         if (status != usb_redir_success) {
-            usbredirhost_send_iso_status(host, transfer->id, ep, status);
+            usbredirhost_send_stream_status(host, transfer->id, ep, status);
         }
     } else {
         for (i = 0; i < host->endpoint[EP2I(ep)].transfer_count; i++) {
@@ -1299,17 +1314,6 @@ unlock:
 }
 
 /**************************************************************************/
-
-static void usbredirhost_send_int_status(struct usbredirhost *host,
-    uint64_t id, uint8_t endpoint, uint8_t status)
-{
-    struct usb_redir_interrupt_receiving_status_header interrupt_status;
-
-    interrupt_status.endpoint = endpoint;
-    interrupt_status.status = status;
-    usbredirparser_send_interrupt_receiving_status(host->parser, id,
-                                                   &interrupt_status);
-}
 
 static void LIBUSB_CALL usbredirhost_buffered_packet_complete(
     struct libusb_transfer *libusb_transfer)
@@ -1345,7 +1349,7 @@ static void LIBUSB_CALL usbredirhost_buffered_packet_complete(
     case LIBUSB_TRANSFER_STALL:
         status = usbredirhost_clear_stream_stall_unlocked(host, ep);
         if (status != usb_redir_success) {
-            usbredirhost_send_int_status(host, id, ep, status);
+            usbredirhost_send_stream_status(host, id, ep, status);
         }
         goto unlock;
     case LIBUSB_TRANSFER_NO_DEVICE:
@@ -1365,7 +1369,7 @@ static void LIBUSB_CALL usbredirhost_buffered_packet_complete(
 
     status = usbredirhost_submit_stream_transfer_unlocked(host, transfer);
     if (status != usb_redir_success) {
-        usbredirhost_send_int_status(host, id, ep, usb_redir_stall);
+        usbredirhost_send_stream_status(host, id, ep, usb_redir_stall);
     }
 unlock:
     UNLOCK(host);
@@ -1566,7 +1570,7 @@ static void usbredirhost_start_iso_stream(void *priv, uint64_t id,
 
     status = usbredirhost_alloc_stream(host, ep, usb_redir_type_iso,
                    start_iso_stream->pkts_per_urb, start_iso_stream->no_urbs);
-    usbredirhost_send_iso_status(host, id, ep, status);
+    usbredirhost_send_stream_status(host, id, ep, status);
     FLUSH(host);
 }
 
@@ -1585,7 +1589,7 @@ static void usbredirhost_stop_iso_stream(void *priv, uint64_t id,
     usbredirhost_cancel_stream(host, ep);
 
 exit:
-    usbredirhost_send_iso_status(host, id, ep, status);
+    usbredirhost_send_stream_status(host, id, ep, status);
     FLUSH(host);
 }
 
@@ -1598,7 +1602,7 @@ static void usbredirhost_start_interrupt_receiving(void *priv, uint64_t id,
 
     status = usbredirhost_alloc_stream(host, ep, usb_redir_type_interrupt,
                                        1, INTERRUPT_TRANSFER_COUNT);
-    usbredirhost_send_int_status(host, id, ep, status);
+    usbredirhost_send_stream_status(host, id, ep, status);
     FLUSH(host);
 }
 
@@ -1617,7 +1621,7 @@ static void usbredirhost_stop_interrupt_receiving(void *priv, uint64_t id,
     usbredirhost_cancel_stream(host, ep);
 
 exit:
-    usbredirhost_send_int_status(host, id, ep, status);
+    usbredirhost_send_stream_status(host, id, ep, status);
     FLUSH(host);
 }
 
@@ -2084,7 +2088,7 @@ leave:
     UNLOCK(host);
     usbredirparser_free_packet_data(host->parser, data);
     if (status != usb_redir_success) {
-        usbredirhost_send_iso_status(host, id, ep, status);
+        usbredirhost_send_stream_status(host, id, ep, status);
         FLUSH(host);
     }
 }
