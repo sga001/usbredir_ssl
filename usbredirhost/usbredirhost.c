@@ -293,17 +293,23 @@ static int libusb_status_or_error_to_redir_status(struct usbredirhost *host,
     }
 }
 
-static int usbredirhost_get_max_packetsize(uint16_t wMaxPacketSize)
+static void usbredirhost_set_max_packetsize(struct usbredirhost *host,
+    uint8_t ep, uint16_t wMaxPacketSize)
 {
-    int size, packets_per_microframe;
+    int maxp, mult = 1;
 
-    size = wMaxPacketSize & 0x7ff;
-    switch ((wMaxPacketSize >> 11) & 3) {
-    case 1:  packets_per_microframe = 2; break;
-    case 2:  packets_per_microframe = 3; break;
-    default: packets_per_microframe = 1; break;
+    maxp = wMaxPacketSize & 0x7ff;
+
+    if (libusb_get_device_speed(host->dev) == LIBUSB_SPEED_HIGH &&
+             host->endpoint[EP2I(ep)].type == usb_redir_type_iso) {
+        switch ((wMaxPacketSize >> 11) & 3) {
+        case 1:  mult = 2; break;
+        case 2:  mult = 3; break;
+        default: mult = 1; break;
+        }
     }
-    return size * packets_per_microframe;
+
+    host->endpoint[EP2I(ep)].max_packetsize = maxp * mult;
 }
 
 /* Called from open/close and parser read callbacks */
@@ -394,19 +400,14 @@ static void usbredirhost_parse_interface(struct usbredirhost *host, int i)
 
     for (j = 0; j < intf_desc->bNumEndpoints; j++) {
         ep_address = intf_desc->endpoint[j].bEndpointAddress;
-        /* FIXlibusb libusb_get_max_iso_packet_size always returns 0
-           independent of alt setting?? */
-        host->endpoint[EP2I(ep_address)].max_packetsize =
-            usbredirhost_get_max_packetsize(
-                intf_desc->endpoint[j].wMaxPacketSize);
-            /* libusb_get_max_iso_packet_size(host->dev, ep_address); */
         host->endpoint[EP2I(ep_address)].type =
-            intf_desc->endpoint[j].bmAttributes &
-                LIBUSB_TRANSFER_TYPE_MASK;
+            intf_desc->endpoint[j].bmAttributes & LIBUSB_TRANSFER_TYPE_MASK;
         host->endpoint[EP2I(ep_address)].interval =
             intf_desc->endpoint[j].bInterval;
         host->endpoint[EP2I(ep_address)].interface =
             intf_desc->bInterfaceNumber;
+        usbredirhost_set_max_packetsize(host, ep_address,
+                                        intf_desc->endpoint[j].wMaxPacketSize);
         host->endpoint[EP2I(ep_address)].warn_on_drop = 1;
     }
 }
