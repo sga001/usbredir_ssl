@@ -1025,6 +1025,25 @@ static int usbredirhost_alloc_stream(struct usbredirhost *host, uint8_t ep,
     return status;
 }
 
+static int usbredirhost_clear_stream_stall_unlocked(
+    struct usbredirhost *host, uint8_t ep)
+{
+    int r;
+    uint8_t pkts_per_transfer = host->endpoint[EP2I(ep)].pkts_per_transfer;
+    uint8_t transfer_count    = host->endpoint[EP2I(ep)].transfer_count;
+
+    WARNING("buffered stream on endpoint %02X stalled, clearing stall", ep);
+
+    usbredirhost_cancel_stream_unlocked(host, ep);
+    r = libusb_clear_halt(host->handle, ep);
+    if (r < 0) {
+        return usb_redir_stall;
+    }
+    return usbredirhost_alloc_stream_unlocked(host, ep,
+                                           host->endpoint[EP2I(ep)].type,
+                                           pkts_per_transfer, transfer_count);
+}
+
 /**************************************************************************/
 
 /* Called from close and parser read callbacks */
@@ -1137,29 +1156,12 @@ static int usbredirhost_handle_iso_status(struct usbredirhost *host,
     case LIBUSB_TRANSFER_CANCELLED:
         /* Stream was intentionally stopped */
         return 2;
-    case LIBUSB_TRANSFER_STALL: {
-        uint8_t pkts_per_transfer, transfer_count;
-
-        /* Uhoh, Cancel the stream, clear stall, on success re-alloc
-           and in case of an input stream resubmit the transfers */
-        WARNING("iso stream on endpoint %02X stalled, clearing stall",
-                (unsigned int)ep);
-        pkts_per_transfer = host->endpoint[EP2I(ep)].pkts_per_transfer;
-        transfer_count = host->endpoint[EP2I(ep)].transfer_count;
-        usbredirhost_cancel_stream_unlocked(host, ep);
-        r = libusb_clear_halt(host->handle, ep);
-        if (r < 0) {
-            usbredirhost_send_iso_status(host, id, ep, usb_redir_stall);
-            return 2;
-        }
-        status = usbredirhost_alloc_stream_unlocked(host, ep,
-                                           usb_redir_type_iso,
-                                           pkts_per_transfer, transfer_count);
+    case LIBUSB_TRANSFER_STALL:
+        status = usbredirhost_clear_stream_stall_unlocked(host, ep);
         if (status != usb_redir_success) {
             usbredirhost_send_iso_status(host, id, ep, status);
         }
         return 2;
-    }
     case LIBUSB_TRANSFER_NO_DEVICE:
         usbredirhost_handle_disconnect(host);
         return 2;
@@ -1341,16 +1343,7 @@ static void LIBUSB_CALL usbredirhost_buffered_packet_complete(
     case LIBUSB_TRANSFER_COMPLETED:
         break;
     case LIBUSB_TRANSFER_STALL:
-        WARNING("interrupt endpoint %02X stalled, clearing stall", ep);
-        usbredirhost_cancel_stream_unlocked(host, ep);
-        r = libusb_clear_halt(host->handle, ep);
-        if (r < 0) {
-            usbredirhost_send_int_status(host, id, ep, usb_redir_stall);
-            goto unlock;
-        }
-        status = usbredirhost_alloc_stream_unlocked(host, ep,
-                                                usb_redir_type_interrupt,
-                                                1, INTERRUPT_TRANSFER_COUNT);
+        status = usbredirhost_clear_stream_stall_unlocked(host, ep);
         if (status != usb_redir_success) {
             usbredirhost_send_int_status(host, id, ep, status);
         }
