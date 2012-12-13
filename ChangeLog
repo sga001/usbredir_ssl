@@ -1,10 +1,13 @@
-usbredir-0.6   28 November 2012
+usbredir-0.6   13 December 2012
 -------------------------------
 -usbredirproto:
+ -add support for bulk packets with 32 bits length
  -add support for buffered bulk input
 -usbredirparser:
+ -add support for bulk packets with 32 bits length
  -add support for buffered bulk input
 -usbredirhost:
+ -add support for bulk packets with 32 bits length
  -queue multiple transfers for interrupt receiving
  -add support for buffered bulk input
  -only apply mult to max-packet-size for isoc high speed endpoints

@@ -1,4 +1,4 @@
-USB Network Redirection protocol description version 0.6 (28 November 2012)
+USB Network Redirection protocol description version 0.6 (13 December 2012)
 
 Revisions
 ---------
@@ -76,7 +76,7 @@ Version 0.5.3, released  7 October 2012
   bits are only send / received if both sides have the
   usb_redir_cap_32bits_bulk_length capability
 
-Version 0.6,   released 28 November 2012
+Version 0.6,   released 13 December 2012
 - Add support for buffered bulk input, new packets:
   usb_redir_start_bulk_receiving, usb_redir_stop_bulk_receiving,
   usb_redir_bulk_receiving_status, usb_redir_buffered_bulk_packet
