@@ -25,6 +25,10 @@
 #include "usbredirparser.h"
 #include "usbredirfilter.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct usbredirhost;
 
 typedef void (*usbredirhost_flush_writes)(void *priv);
@@ -160,5 +164,9 @@ void usbredirhost_get_guest_filter(struct usbredirhost *host,
        it returns the return value of the usbredirfilter_check call. */
 int usbredirhost_check_device_filter(const struct usbredirfilter_rule *rules,
     int rules_count, libusb_device *dev, int flags);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

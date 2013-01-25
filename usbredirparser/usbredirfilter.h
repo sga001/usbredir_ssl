@@ -24,6 +24,10 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct usbredirfilter_rule {
     int device_class;       /* 0-255, -1 to match any class */
     int vendor_id;          /* 0-65535, -1 to match any id */
@@ -128,4 +132,9 @@ int usbredirfilter_verify(
 /* Print the passed in rules to FILE out in human readable format */
 void usbredirfilter_print(
     const struct usbredirfilter_rule *rules, int rules_count, FILE *out);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

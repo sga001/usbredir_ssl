@@ -42,6 +42,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum {
     usb_redir_success,
     usb_redir_cancelled,    /* The transfer was cancelled */
@@ -291,6 +295,10 @@ struct usb_redir_buffered_bulk_packet_header {
 
 #if defined(__MINGW32__) || !defined(__GNUC__)
 #pragma pack(pop)
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

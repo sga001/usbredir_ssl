@@ -23,6 +23,10 @@
 
 #include "usbredirproto.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct usbredirparser;
 struct usbredirfilter_rule;
 
@@ -374,4 +378,9 @@ int usbredirparser_serialize(struct usbredirparser *parser,
                                             invalid state data). */
 int usbredirparser_unserialize(struct usbredirparser *parser_pub,
                                uint8_t *state, int len);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif
