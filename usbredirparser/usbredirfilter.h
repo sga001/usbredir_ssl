@@ -101,8 +101,8 @@ char *usbredirfilter_rules_to_string(const struct usbredirfilter_rule *rules,
    -EPERM will be returned.
 
    If a given pass does not match any rules, then processing stops and
-   -EPERM will be returned. This behavior can be changed with the
-   usbredirfilter_fl_default_allow flag, if this flas is set the result of a
+   -ENOENT will be returned. This behavior can be changed with the
+   usbredirfilter_fl_default_allow flag, if this flag is set the result of a
    pass with no matching rules will be allow.
 
    Return value:
