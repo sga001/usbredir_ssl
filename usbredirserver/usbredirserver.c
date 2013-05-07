@@ -196,9 +196,9 @@ int main(int argc, char *argv[])
     int usbaddr    = -1;
     int usbvendor  = -1;
     int usbproduct = -1;
-    struct addrinfo *r, *res, hints;
+    int on = 1;
+    struct sockaddr_in6 serveraddr;
     struct sigaction act;
-    char port_str[16];
     libusb_device_handle *handle = NULL;
 
     while ((o = getopt_long(argc, argv, "hp:v:", longopts, NULL)) != -1) {
@@ -271,37 +271,29 @@ int main(int argc, char *argv[])
 
     libusb_set_debug(ctx, verbose);
 
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_flags = AI_ADDRCONFIG | AI_NUMERICSERV | AI_PASSIVE;
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-
-    sprintf(port_str, "%d", port);
-    if (getaddrinfo(NULL, port_str, &hints, &res) != 0) {
-        perror("getaddrinfo");
+    server_fd = socket(AF_INET6, SOCK_STREAM, 0);
+    if (server_fd == -1) {
+        perror("Error creating ipv6 socket");
         exit(1);
     }
 
-    for (r = res; r != NULL; r = r->ai_next) {
-        server_fd = socket(r->ai_family, r->ai_socktype, r->ai_protocol);
-        if (server_fd == -1)
-            continue;
-
-        if (bind(server_fd, r->ai_addr, r->ai_addrlen) == 0)
-            break;
-
-        close(server_fd);
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on))) {
+        perror("Error setsockopt(SO_REUSEADDR) failed");
+        exit(1);
     }
-    freeaddrinfo(res);
+                                                      
+    memset(&serveraddr, 0, sizeof(serveraddr));
+    serveraddr.sin6_family = AF_INET6;
+    serveraddr.sin6_port   = htons(port);
+    serveraddr.sin6_addr   = in6addr_any;
 
-    if (r == NULL) {
-        fprintf(stderr, "Could not bind to port: %s\n", port_str);
+    if (bind(server_fd, (struct sockaddr *)&serveraddr, sizeof(serveraddr))) {
+        fprintf(stderr, "Error binding port %d: %s\n", port, strerror(errno));
         exit(1);
     }
 
     if (listen(server_fd, 1)) {
-        perror("listen");
+        perror("Error listening");
         exit(1);
     }
 
