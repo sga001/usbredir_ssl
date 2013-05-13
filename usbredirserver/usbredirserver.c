@@ -189,7 +189,7 @@ static void quit_handler(int sig)
 
 int main(int argc, char *argv[])
 {
-    int o, server_fd = -1;
+    int o, flags, server_fd = -1;
     char *endptr, *delim;
     int port       = 4000;
     int usbbus     = -1;
@@ -307,8 +307,16 @@ int main(int argc, char *argv[])
             break;
         }
 
-        fcntl(client_fd, F_SETFL,
-              (long)fcntl(client_fd, F_GETFL) | O_NONBLOCK);
+        flags = fcntl(client_fd, F_GETFL);
+        if (flags == -1) {
+            perror("fcntl F_GETFL");
+            break;
+        }
+        flags = fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
+        if (flags == -1) {
+            perror("fcntl F_SETFL O_NONBLOCK");
+            break;
+        }
 
         /* Try to find the specified usb device */
         if (usbvendor != -1) {

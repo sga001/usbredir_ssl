@@ -189,7 +189,7 @@ static void quit_handler(int sig)
 
 int main(int argc, char *argv[])
 {
-    int o;
+    int o, flags;
     char *endptr, *server;
     struct addrinfo *r, *res, hints;
     struct sigaction act;
@@ -265,7 +265,17 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    fcntl(client_fd, F_SETFL, (long)fcntl(client_fd, F_GETFL) | O_NONBLOCK);
+    flags = fcntl(client_fd, F_GETFL);
+    if (flags == -1) {
+        perror("fcntl F_GETFL");
+        exit(1);
+    }
+    flags = fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
+    if (flags == -1) {
+        perror("fcntl F_SETFL O_NONBLOCK");
+        exit(1);
+    }
+
     parser = usbredirparser_create();
     if (!parser) {
         exit(1);
