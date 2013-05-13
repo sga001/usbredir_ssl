@@ -1041,7 +1041,8 @@ static int usbredirhost_submit_stream_transfer_unlocked(
 static int usbredirhost_start_stream_unlocked(struct usbredirhost *host,
     uint8_t ep)
 {
-    int i, status, count = host->endpoint[EP2I(ep)].transfer_count;
+    unsigned int i, count = host->endpoint[EP2I(ep)].transfer_count;
+    int status;
 
     /* For out endpoints 1/2 the transfers are a buffer for usb-guest data */
     if (!(ep & LIBUSB_ENDPOINT_IN)) {
