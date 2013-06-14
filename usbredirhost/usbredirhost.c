@@ -499,9 +499,13 @@ static int usbredirhost_claim(struct usbredirhost *host, int initial_claim)
     memset(host->alt_setting, 0, MAX_INTERFACES);
 
     host->claimed = 1;
+#if LIBUSBX_API_VERSION >= 0x01000102
+    libusb_set_auto_detach_kernel_driver(host->handle, 1);
+#endif
     for (i = 0; host->config && i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
 
+#if LIBUSBX_API_VERSION < 0x01000102
         r = libusb_detach_kernel_driver(host->handle, n);
         if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND
                   && r != LIBUSB_ERROR_NOT_SUPPORTED) {
@@ -509,6 +513,7 @@ static int usbredirhost_claim(struct usbredirhost *host, int initial_claim)
                   n, host->config->bConfigurationValue, libusb_error_name(r));
             return libusb_status_or_error_to_redir_status(host, r);
         }
+#endif
 
         r = libusb_claim_interface(host->handle, n);
         if (r < 0) {
@@ -533,6 +538,16 @@ static void usbredirhost_release(struct usbredirhost *host, int attach_drivers)
 
     if (!host->claimed)
         return;
+
+#if LIBUSBX_API_VERSION >= 0x01000102
+    /* We want to always do the attach ourselves because:
+       1) For compound interfaces such as usb-audio we must first release all
+          interfaces before we can attach the driver;
+       2) When releasing interfaces before calling libusb_set_configuration,
+          we don't want the kernel driver to get attached (our attach_drivers
+          parameter is 0 in this case). */
+    libusb_set_auto_detach_kernel_driver(host->handle, 0);
+#endif
 
     for (i = 0; host->config && i < host->config->bNumInterfaces; i++) {
         n = host->config->interface[i].altsetting[0].bInterfaceNumber;
