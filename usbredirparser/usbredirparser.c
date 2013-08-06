@@ -1039,7 +1039,7 @@ int usbredirparser_do_write(struct usbredirparser *parser_pub)
         w = parser->callb.write_func(parser->callb.priv,
                                      wbuf->buf + wbuf->pos, w);
         if (w <= 0) {
-            ret = -1;
+            ret = w;
             break;
         }
 
