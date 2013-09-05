@@ -1011,6 +1011,8 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
                 parser->data = NULL;
                 if (!r)
                     return -2;
+                /* header len may change if this was an hello packet */
+                header_len = usbredirparser_get_header_len(parser_pub);
             }
         }
     }
