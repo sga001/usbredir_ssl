@@ -974,7 +974,8 @@ int usbredirparser_do_read(struct usbredirparser *parser_pub)
                 if ((int)parser->header.length < type_header_len ||
                     ((int)parser->header.length > type_header_len &&
                      !usbredirparser_expect_extra_data(parser))) {
-                    ERROR("error invalid packet length: %u", parser->header.length);
+                    ERROR("error invalid packet type %u length: %u",
+                          parser->header.type, parser->header.length);
                     parser->to_skip = parser->header.length;
                     parser->header_read = 0;
                     return -2;
