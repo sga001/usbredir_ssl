@@ -1,4 +1,7 @@
 * do endian conversion in usbredirparser where necessary
+  * update serialize format (comment only) to be little endian, and also do
+    endian conversion there so be -> le and visa versa serialisation becomes
+    possible
 * check length against max packet size
 * check caps for relevant callbacks in parser
 * cancel pending packets / active streams before reset?
