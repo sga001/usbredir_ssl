@@ -719,6 +719,9 @@ struct usbredirhost *usbredirhost_open_full(
     usbredirparser_caps_set_cap(caps, usb_redir_cap_64bits_ids);
     usbredirparser_caps_set_cap(caps, usb_redir_cap_32bits_bulk_length);
     usbredirparser_caps_set_cap(caps, usb_redir_cap_bulk_receiving);
+#if LIBUSBX_API_VERSION >= 0x01000103
+    usbredirparser_caps_set_cap(caps, usb_redir_cap_bulk_streams);
+#endif
 
     usbredirparser_init(host->parser, version, caps, USB_REDIR_CAPS_SIZE,
                         parser_flags);
@@ -1730,16 +1733,75 @@ static void usbredirhost_stop_interrupt_receiving(void *priv, uint64_t id,
     usbredirhost_stop_stream(priv, id, stop_interrupt_receiving->endpoint);
 }
 
+#if LIBUSBX_API_VERSION >= 0x01000103
+static int usbredirhost_ep_mask_to_eps(uint32_t ep_mask, unsigned char *eps)
+{
+    int i, j;
+
+    for (i = 0, j = 0; i < MAX_ENDPOINTS; i++) {
+        if (ep_mask & (1 << i))
+            eps[j++] = I2EP(i);
+    }
+
+    return j;
+}
+#endif
+
 static void usbredirhost_alloc_bulk_streams(void *priv, uint64_t id,
     struct usb_redir_alloc_bulk_streams_header *alloc_bulk_streams)
 {
-    /* struct usbredirhost *host = priv; */
+#if LIBUSBX_API_VERSION >= 0x01000103
+    struct usbredirhost *host = priv;
+    unsigned char eps[MAX_ENDPOINTS];
+    int r, no_eps;
+    struct usb_redir_bulk_streams_status_header streams_status = {
+        .endpoints = alloc_bulk_streams->endpoints,
+        .no_streams = alloc_bulk_streams->no_streams,
+        .status = usb_redir_success,
+    };
+
+    no_eps = usbredirhost_ep_mask_to_eps(alloc_bulk_streams->endpoints, eps);
+    r = libusb_alloc_streams(host->handle, alloc_bulk_streams->no_streams,
+                             eps, no_eps);
+    if (r < 0) {
+        ERROR("could not alloc bulk streams: %s", libusb_error_name(r));
+        streams_status.status =
+            libusb_status_or_error_to_redir_status(host, r);
+    } else if (r < alloc_bulk_streams->no_streams) {
+        ERROR("tried to alloc %u bulk streams but got only %d",
+              alloc_bulk_streams->no_streams, r);
+        streams_status.status = usb_redir_ioerror;
+    }
+
+    usbredirparser_send_bulk_streams_status(host->parser, id, &streams_status);
+    FLUSH(host);
+#endif
 }
 
 static void usbredirhost_free_bulk_streams(void *priv, uint64_t id,
     struct usb_redir_free_bulk_streams_header *free_bulk_streams)
 {
-    /* struct usbredirhost *host = priv; */
+#if LIBUSBX_API_VERSION >= 0x01000103
+    struct usbredirhost *host = priv;
+    unsigned char eps[MAX_ENDPOINTS];
+    int r, no_eps;
+    struct usb_redir_bulk_streams_status_header streams_status = {
+        .endpoints = free_bulk_streams->endpoints,
+        .no_streams = 0,
+        .status = usb_redir_success,
+    };
+
+    no_eps = usbredirhost_ep_mask_to_eps(free_bulk_streams->endpoints, eps);
+    r = libusb_free_streams(host->handle, eps, no_eps);
+    if (r < 0) {
+        ERROR("could not free bulk streams: %s", libusb_error_name(r));
+        streams_status.status =
+            libusb_status_or_error_to_redir_status(host, r);
+    }
+
+    usbredirparser_send_bulk_streams_status(host->parser, id, &streams_status);
+    FLUSH(host);
+#endif
 }
 
 static void usbredirhost_filter_reject(void *priv)
@@ -1846,6 +1908,9 @@ static void usbredirhost_cancel_data_packet(void *priv, uint64_t id)
                                                &control_packet, NULL, 0);
             break;
         case LIBUSB_TRANSFER_TYPE_BULK:
+#if LIBUSBX_API_VERSION >= 0x01000103
+        case LIBUSB_TRANSFER_TYPE_BULK_STREAM:
+#endif
             bulk_packet = t->bulk_packet;
             bulk_packet.status = usb_redir_cancelled;
             bulk_packet.length = 0;
@@ -2098,9 +2163,21 @@ static void usbredirhost_bulk_packet(void *priv, uint64_t id,
 
     host->reset = 0;
 
-    libusb_fill_bulk_transfer(transfer->transfer, host->handle, ep, data, len,
-                              usbredirhost_bulk_packet_complete,
-                              transfer, BULK_TIMEOUT);
+    if (bulk_packet->stream_id) {
+#if LIBUSBX_API_VERSION >= 0x01000103
+        libusb_fill_bulk_stream_transfer(transfer->transfer, host->handle, ep,
+                                         bulk_packet->stream_id, data, len,
+                                         usbredirhost_bulk_packet_complete,
+                                         transfer, BULK_TIMEOUT);
+#else
+        r = LIBUSB_ERROR_INVALID_PARAM;
+        goto error;
+#endif
+    } else {
+        libusb_fill_bulk_transfer(transfer->transfer, host->handle, ep,
+                                  data, len, usbredirhost_bulk_packet_complete,
+                                  transfer, BULK_TIMEOUT);
+    }
     transfer->id = id;
     transfer->bulk_packet = *bulk_packet;
 
@@ -2108,6 +2185,9 @@ static void usbredirhost_bulk_packet(void *priv, uint64_t id,
 
     r = libusb_submit_transfer(transfer->transfer);
     if (r < 0) {
+#if LIBUSBX_API_VERSION < 0x01000103
+error:
+#endif
         ERROR("error submitting bulk transfer on ep %02X: %s",
               ep, libusb_error_name(r));
         transfer->transfer->actual_length = 0;

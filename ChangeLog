@@ -13,6 +13,7 @@ usbredir-0.7   16 October 2013
   in one usbredirparser_do_read call
 -usbredirhost:
  -use libusb_set_auto_detach_kernel_driver when available
+ -add support for bulk streams, this only gets enabled with libusbx >= 1.0.18
 -usbredirserver:
  -listen to both ipv4 and ipv6 addresses on ipv6 capable systems
 
