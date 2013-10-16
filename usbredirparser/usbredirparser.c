@@ -135,6 +135,8 @@ static void serialize_test(struct usbredirparser *parser_pub)
 
 static void usbredirparser_queue(struct usbredirparser *parser, uint32_t type,
     uint64_t id, void *type_header_in, uint8_t *data_in, int data_len);
+static int usbredirparser_caps_get_cap(struct usbredirparser_priv *parser,
+    uint32_t *caps, int cap);
 
 struct usbredirparser *usbredirparser_create(void)
 {
@@ -188,6 +190,20 @@ void usbredirparser_destroy(struct usbredirparser *parser_pub)
     free(parser);
 }
 
+static int usbredirparser_caps_get_cap(struct usbredirparser_priv *parser,
+    uint32_t *caps, int cap)
+{
+    if (cap / 32 >= USB_REDIR_CAPS_SIZE) {
+        ERROR("error request for out of bounds cap: %d", cap);
+        return 0;
+    }
+    if (caps[cap / 32] & (1 << (cap % 32))) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
 void usbredirparser_caps_set_cap(uint32_t *caps, int cap)
 {
     caps[cap / 32] |= 1 << (cap % 32);
@@ -205,26 +221,14 @@ int usbredirparser_peer_has_cap(struct usbredirparser *parser_pub, int cap)
 {
     struct usbredirparser_priv *parser =
         (struct usbredirparser_priv *)parser_pub;
-    if (cap / 32 >= USB_REDIR_CAPS_SIZE) {
-        ERROR("error request for out of bounds cap: %d", cap);
-        return 0;
-    }
-    if ((parser->peer_caps[cap / 32]) & (1 << (cap % 32))) {
-        return 1;
-    } else {
-        return 0;
-    }
+    return usbredirparser_caps_get_cap(parser, parser->peer_caps, cap);
 }
 
 int usbredirparser_have_cap(struct usbredirparser *parser_pub, int cap)
 {
     struct usbredirparser_priv *parser =
         (struct usbredirparser_priv *)parser_pub;
-    if ((parser->our_caps[cap / 32]) & (1 << (cap % 32))) {
-        return 1;
-    } else {
-        return 0;
-    }
+    return usbredirparser_caps_get_cap(parser, parser->our_caps, cap);
 }
 
 static int usbredirparser_using_32bits_ids(struct usbredirparser *parser_pub)
