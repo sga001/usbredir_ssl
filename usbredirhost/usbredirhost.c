@@ -95,6 +95,7 @@ struct usbredirhost_ep {
     int out_idx;
     int drop_packets;
     int max_packetsize;
+    unsigned int max_streams;
     struct usbredirtransfer *transfer[MAX_TRANSFER_COUNT];
 };
 
@@ -326,6 +327,26 @@ static void usbredirhost_set_max_packetsize(struct usbredirhost *host,
     host->endpoint[EP2I(ep)].max_packetsize = maxp * mult;
 }
 
+static void usbredirhost_set_max_streams(struct usbredirhost *host,
+    const struct libusb_endpoint_descriptor *endp)
+{
+#if LIBUSBX_API_VERSION >= 0x01000102
+    struct libusb_ss_endpoint_companion_descriptor *endp_ss_comp;
+    int max_streams, i = EP2I(endp->bEndpointAddress);
+
+    host->endpoint[i].max_streams = 0;
+
+    if (host->endpoint[i].type == usb_redir_type_bulk &&
+            libusb_get_ss_endpoint_companion_descriptor(host->ctx, endp,
+                &endp_ss_comp) == LIBUSB_SUCCESS) {
+        max_streams = endp_ss_comp->bmAttributes & 0x1f;
+        if (max_streams)
+            host->endpoint[i].max_streams = 1 << max_streams;
+        libusb_free_ss_endpoint_companion_descriptor(endp_ss_comp);
+    }
+#endif
+}
+
 /* Called from open/close and parser read callbacks */
 static void usbredirhost_send_interface_n_ep_info(struct usbredirhost *host)
 {
@@ -353,6 +374,7 @@ static void usbredirhost_send_interface_n_ep_info(struct usbredirhost *host)
         ep_info.interval[i] = host->endpoint[i].interval;
         ep_info.interface[i] = host->endpoint[i].interface;
         ep_info.max_packet_size[i] = host->endpoint[i].max_packetsize;
+        ep_info.max_streams[i] = host->endpoint[i].max_streams;
     }
     usbredirparser_send_ep_info(host->parser, &ep_info);
 }
@@ -422,6 +444,7 @@ static void usbredirhost_parse_interface(struct usbredirhost *host, int i)
             intf_desc->bInterfaceNumber;
         usbredirhost_set_max_packetsize(host, ep_address,
                                         intf_desc->endpoint[j].wMaxPacketSize);
+        usbredirhost_set_max_streams(host, &intf_desc->endpoint[j]);
         host->endpoint[EP2I(ep_address)].warn_on_drop = 1;
     }
 }
@@ -439,6 +462,7 @@ static void usbredirhost_parse_config(struct usbredirhost *host)
         host->endpoint[i].interval = 0;
         host->endpoint[i].interface = 0;
         host->endpoint[i].max_packetsize = 0;
+        host->endpoint[i].max_streams = 0;
     }
 
     for (i = 0; host->config && i < host->config->bNumInterfaces; i++) {
