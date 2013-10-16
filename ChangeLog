@@ -7,6 +7,8 @@ usbredir-0.7   16 October 2013
   streams on multiple endpoints in one go, technically this is a protocol
   change, but no-one has implemented usb_redir_cap_bulk_streams so far, so
   we can safely do this
+ -add a USBREDIR_VERSION define so applications can test against which
+  version they are building
 -usbredirparser:
  -fix a bug causing parsing breakage when receiving a hello packet with 64 bit
   id capabiliy and another packet in succession so that they both got parsed
