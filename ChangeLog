@@ -1,3 +1,14 @@
+usbredir-0.7   16 October 2013
+------------------------------
+-usbredirparser:
+ -fix a bug causing parsing breakage when receiving a hello packet with 64 bit
+  id capabiliy and another packet in succession so that they both got parsed
+  in one usbredirparser_do_read call
+-usbredirhost:
+ -use libusb_set_auto_detach_kernel_driver when available
+-usbredirserver:
+ -listen to both ipv4 and ipv6 addresses on ipv6 capable systems
+
 usbredir-0.6   13 December 2012
 -------------------------------
 -usbredirproto:
