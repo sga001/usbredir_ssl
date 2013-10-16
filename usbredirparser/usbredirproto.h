@@ -223,18 +223,18 @@ struct usb_redir_interrupt_receiving_status_header {
 } ATTR_PACKED;
 
 struct usb_redir_alloc_bulk_streams_header {
-    uint8_t endpoint;
-    uint8_t no_streams;
+    uint32_t endpoints; /* bitmask indicating on which eps to alloc streams */
+    uint32_t no_streams;
 } ATTR_PACKED;
 
 struct usb_redir_free_bulk_streams_header {
-    uint8_t endpoint;
+    uint32_t endpoints; /* bitmask indicating on which eps to free streams */
 } ATTR_PACKED;
 
 struct usb_redir_bulk_streams_status_header {
+    uint32_t endpoints; /* bitmask indicating eps this status message is for */
+    uint32_t no_streams;
     uint8_t status;
-    uint8_t endpoint;
-    uint8_t no_streams;
 } ATTR_PACKED;
 
 struct usb_redir_start_bulk_receiving_header {

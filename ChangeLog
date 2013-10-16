@@ -3,6 +3,10 @@ usbredir-0.7   16 October 2013
 -usbredirproto:
  -the usb_redir_ep_info_header has been extended with a max_streams field,
   this is only send / received if both sides have usb_redir_cap_bulk_streams
+ -Change bulk_stream packet definitions to allow allocating / freeing
+  streams on multiple endpoints in one go, technically this is a protocol
+  change, but no-one has implemented usb_redir_cap_bulk_streams so far, so
+  we can safely do this
 -usbredirparser:
  -fix a bug causing parsing breakage when receiving a hello packet with 64 bit
   id capabiliy and another packet in succession so that they both got parsed

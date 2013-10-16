@@ -86,6 +86,10 @@ Version 0.7,   released 16 October 2013
 - The usb_redir_ep_info_header has been extended with a max_streams field
   This is only send / received if both sides have the
   usb_redir_cap_bulk_streams capability.
+- Change bulk_stream packet definitions to allow allocating / freeing
+  streams on multiple endpoints in one go, technically this is a protocol
+  change, but no-one has implemented usb_redir_cap_bulk_streams so far, so
+  we can safely do this
 
 
 USB redirection protocol version 0.7
@@ -662,15 +666,17 @@ usb_redir_header.type:    usb_redir_alloc_bulk_streams
 usb_redir_header.length:  sizeof(usb_redir_alloc_bulk_streams_header)
 
 struct usb_redir_alloc_bulk_streams_header {
-    uint8_t endpoint;
-    uint8_t no_streams;
+    uint32_t endpoints; /* bitmask indicating on which eps to alloc streams */
+    uint32_t no_streams;
 }
 
 No packet type specific additional data.
 
 This packet can be send by the usb-guest to the usb-host to request
 that the usb-host allocates IDs so the usb-guest can use up to no_streams
-stream IDs.
+stream IDs on the endpoints indicated by the endpoints bitmask. Endpoints in
+the bitmask are indicated by bit number (0-31) using the same numbering as
+in usb_redir_ep_info_header.
 
 usb_redir_free_bulk_streams
 ----------------------------
@@ -679,13 +685,14 @@ usb_redir_header.type:    usb_redir_free_bulk_streams
 usb_redir_header.length:  sizeof(usb_redir_free_bulk_streams_header)
 
 struct usb_redir_free_bulk_streams_header {
-    uint8_t endpoint;
+    uint32_t endpoints; /* bitmask indicating on which eps to free streams */
 }
 
 No packet type specific additional data.
 
 This packet can be send by the usb-guest to the usb-host to free any
-bulk streams previouisly allocated on the endpoint.
+bulk streams previously allocated on the endpoints indicated by the
+endpoints bitmask.
 
 usb_redir_bulk_streams_status
 -----------------------------
@@ -694,18 +701,22 @@ usb_redir_header.type:    usb_redir_bulk_streams_status
 usb_redir_header.length:  sizeof(usb_redir_bulk_streams_status_header)
 
 struct usb_redir_bulk_streams_status_header {
+    uint32_t endpoints; /* bitmask indicating eps this status message is for */
+    uint32_t no_streams;
     uint8_t status;
-    uint8_t endpoint;
-    uint8_t no_streams;
 }
 
 No packet type specific additional data.
 
 This packet is send by the usb-host in response to a
-usb_redir_alloc_bulk_streams or usb_redir_free_bulk_streams packet. Note
-that on a success status in response to a usb_redir_alloc_bulk_streams
-no_streams may be less then requested due to host controller / device
-limitations. On a success status in response to a usb_redir_alloc_bulk_streams
+usb_redir_alloc_bulk_streams or usb_redir_free_bulk_streams packet.
+
+For usb_redir_alloc_bulk_streams responses no_streams will be the no_streams
+passed to the usb_redir_alloc_bulk_streams packet. usb-hosts are not allowed
+to return less streams then requested! For usb_redir_free_bulk_streams
+responses no_streams will be 0.
+
+On a success status in response to a usb_redir_alloc_bulk_streams
 the usb-guest may use stream ids 1 through no_streams.
 
 
