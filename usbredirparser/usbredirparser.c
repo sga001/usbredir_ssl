@@ -66,7 +66,7 @@ struct usbredirparser_priv {
         struct usb_redir_header header;
         struct usb_redir_header_32bit_id header_32bit_id;
     };
-    uint8_t type_header[256];
+    uint8_t type_header[288];
     int header_read;
     int type_header_len;
     int type_header_read;
@@ -143,6 +143,19 @@ struct usbredirparser *usbredirparser_create(void)
     return calloc(1, sizeof(struct usbredirparser_priv));
 }
 
+static void usbredirparser_verify_caps(struct usbredirparser_priv *parser,
+    uint32_t *caps, const char *desc)
+{
+    if (usbredirparser_caps_get_cap(parser, caps,
+                                    usb_redir_cap_bulk_streams) &&
+        !usbredirparser_caps_get_cap(parser, caps,
+                                     usb_redir_cap_ep_info_max_packet_size)) {
+        ERROR("error %s caps contains cap_bulk_streams without"
+              "cap_ep_info_max_packet_size", desc);
+        caps[0] &= ~(1 << usb_redir_cap_bulk_streams);
+    }
+}
+
 void usbredirparser_init(struct usbredirparser *parser_pub,
     const char *version, uint32_t *caps, int caps_len, int flags)
 {
@@ -164,6 +177,7 @@ void usbredirparser_init(struct usbredirparser *parser_pub,
     if (!(flags & usbredirparser_fl_usb_host))
         usbredirparser_caps_set_cap(parser->our_caps,
                                     usb_redir_cap_device_disconnect_ack);
+    usbredirparser_verify_caps(parser, parser->our_caps, "our");
     if (!(flags & usbredirparser_fl_no_hello))
         usbredirparser_queue(parser_pub, usb_redir_hello, 0, &hello,
                              (uint8_t *)parser->our_caps,
@@ -262,6 +276,7 @@ static void usbredirparser_handle_hello(struct usbredirparser *parser_pub,
     for (i = 0; i < data_len / sizeof(uint32_t); i++) {
         parser->peer_caps[i] = peer_caps[i];
     }
+    usbredirparser_verify_caps(parser, parser->peer_caps, "peer");
     parser->have_peer_caps = 1;
     free(data);
 
@@ -332,10 +347,15 @@ static int usbredirparser_get_type_header_len(
     case usb_redir_ep_info:
         if (!command_for_host) {
             if (usbredirparser_have_cap(parser_pub,
-                                    usb_redir_cap_ep_info_max_packet_size) &&
+                                    usb_redir_cap_bulk_streams) &&
                 usbredirparser_peer_has_cap(parser_pub,
-                                    usb_redir_cap_ep_info_max_packet_size)) {
+                                    usb_redir_cap_bulk_streams)) {
                 return sizeof(struct usb_redir_ep_info_header);
+            } else if (usbredirparser_have_cap(parser_pub,
+                                    usb_redir_cap_ep_info_max_packet_size) &&
+                       usbredirparser_peer_has_cap(parser_pub,
+                                    usb_redir_cap_ep_info_max_packet_size)) {
+                return sizeof(struct usb_redir_ep_info_header_no_max_streams);
             } else {
                 return sizeof(struct usb_redir_ep_info_header_no_max_pktsz);
             }

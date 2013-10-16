@@ -82,9 +82,14 @@ Version 0.6,   released 13 December 2012
   usb_redir_bulk_receiving_status, usb_redir_buffered_bulk_packet
   New capability: usb_redir_cap_bulk_receiving
 
+Version 0.7,   released 16 October 2013
+- The usb_redir_ep_info_header has been extended with a max_streams field
+  This is only send / received if both sides have the
+  usb_redir_cap_bulk_streams capability.
 
-USB redirerection protocol version 0.6
---------------------------------------
+
+USB redirection protocol version 0.7
+------------------------------------
 
 The protocol described in this document is meant for tunneling usb transfers
 to a single usb device. Note: not an entire hub, only a single device.
@@ -383,6 +388,7 @@ struct usb_redir_ep_info_header {
     uint8_t interval[32];
     uint8_t interface[32];
     uint16_t max_packet_size[32];
+    uint32_t max_streams[32];
 }
 
 No packet type specific additional data.
@@ -395,6 +401,16 @@ connection, set_config and set_alt_setting.
 The max_packet_size field should only be send (and expected on receive)
 when both sides have the usb_redir_cap_ep_info_max_packet_size capability.
 If this is not the case the length of the packet will be 64 bytes less!
+
+The max_streams field should only be send (and expected on receive)
+when both sides have the usb_redir_cap_bulk_streams capability. If this is
+not the case the length of the packet will be 128 bytes less!
+
+Note implementations with the usb_redir_cap_bulk_streams capability must
+always also have the usb_redir_cap_ep_info_max_packet_size capability.
+Advertising usb_redir_cap_bulk_streams without
+usb_redir_cap_ep_info_max_packet_size is not allowed!
+
 
 usb_redir_set_configuration
 ---------------------------

@@ -57,6 +57,13 @@ struct usb_redir_ep_info_header_no_max_pktsz {
     uint8_t interface[32];
 } ATTR_PACKED;
 
+struct usb_redir_ep_info_header_no_max_streams {
+    uint8_t type[32];
+    uint8_t interval[32];
+    uint8_t interface[32];
+    uint16_t max_packet_size[32];
+} ATTR_PACKED;
+
 struct usb_redir_header_32bit_id {
     uint32_t type;
     uint32_t length;

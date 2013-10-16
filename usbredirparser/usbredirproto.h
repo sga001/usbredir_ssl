@@ -167,6 +167,7 @@ struct usb_redir_ep_info_header {
     uint8_t interval[32];
     uint8_t interface[32];
     uint16_t max_packet_size[32];
+    uint32_t max_streams[32];
 } ATTR_PACKED;
 
 struct usb_redir_set_configuration_header {
