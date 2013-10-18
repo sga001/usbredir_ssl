@@ -1548,6 +1548,17 @@ static void usbredirhost_reset(void *priv)
         return;
     }
 
+    /*
+     * The guest should have cancelled any pending urbs already, but the
+     * cancellations may be awaiting completion, and if we then do a reset
+     * they will complete with an error code of LIBUSB_TRANSFER_NO_DEVICE.
+     *
+     * And we also need to cleanly shutdown any streams (and let the guest
+     * know they should be restarted after the reset).
+     */
+    if (usbredirhost_cancel_pending_urbs(host, 1))
+        usbredirhost_wait_for_cancel_completion(host);
+
     r = usbredirhost_reset_device(host);
     if (r != 0) {
         host->read_status = usbredirhost_read_device_lost;
