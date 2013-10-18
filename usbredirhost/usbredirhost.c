@@ -220,6 +220,7 @@ static void LIBUSB_CALL usbredirhost_iso_packet_complete(
 static void LIBUSB_CALL usbredirhost_buffered_packet_complete(
     struct libusb_transfer *libusb_transfer);
 static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host);
+static void usbredirhost_wait_for_cancel_completion(struct usbredirhost *host);
 static void usbredirhost_clear_device(struct usbredirhost *host);
 
 static void usbredirhost_log(void *priv, int level, const char *msg)
@@ -816,21 +817,11 @@ int usbredirhost_set_device(struct usbredirhost *host,
 
 static void usbredirhost_clear_device(struct usbredirhost *host)
 {
-    int wait;
-    struct timeval tv;
-
     if (!host->dev)
         return;
 
-    wait = usbredirhost_cancel_pending_urbs(host);
-    while (wait) {
-        memset(&tv, 0, sizeof(tv));
-        tv.tv_usec = 2500;
-        libusb_handle_events_timeout(host->ctx, &tv);
-        LOCK(host);
-        wait = host->cancels_pending || host->transfers_head.next;
-        UNLOCK(host);
-    }
+    if (usbredirhost_cancel_pending_urbs(host))
+        usbredirhost_wait_for_cancel_completion(host);
 
     usbredirhost_release(host, 1);
 
@@ -1271,6 +1262,22 @@ static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host)
 
     return wait;
 }
+
+/* Called from close and parser read callbacks */
+void usbredirhost_wait_for_cancel_completion(struct usbredirhost *host)
+{
+    int wait;
+    struct timeval tv;
+
+    do {
+        memset(&tv, 0, sizeof(tv));
+        tv.tv_usec = 2500;
+        libusb_handle_events_timeout(host->ctx, &tv);
+        LOCK(host);
+        wait = host->cancels_pending || host->transfers_head.next;
+        UNLOCK(host);
+    } while (wait);
+}  
 
 /* Only called from read callbacks */
 static void usbredirhost_cancel_pending_urbs_on_interface(
