@@ -219,7 +219,8 @@ static void LIBUSB_CALL usbredirhost_iso_packet_complete(
     struct libusb_transfer *libusb_transfer);
 static void LIBUSB_CALL usbredirhost_buffered_packet_complete(
     struct libusb_transfer *libusb_transfer);
-static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host);
+static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host,
+                                            int notify_guest);
 static void usbredirhost_wait_for_cancel_completion(struct usbredirhost *host);
 static void usbredirhost_clear_device(struct usbredirhost *host);
 
@@ -820,7 +821,7 @@ static void usbredirhost_clear_device(struct usbredirhost *host)
     if (!host->dev)
         return;
 
-    if (usbredirhost_cancel_pending_urbs(host))
+    if (usbredirhost_cancel_pending_urbs(host, 0))
         usbredirhost_wait_for_cancel_completion(host);
 
     usbredirhost_release(host, 1);
@@ -1243,13 +1244,16 @@ static void usbredirhost_clear_stream_stall_unlocked(
 /**************************************************************************/
 
 /* Called from close and parser read callbacks */
-static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host)
+static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host,
+                                            int notify_guest)
 {
     struct usbredirtransfer *t;
     int i, wait;
 
     LOCK(host);
     for (i = 0; i < MAX_ENDPOINTS; i++) {
+        if (notify_guest && host->endpoint[i].transfer_count)
+            usbredirhost_send_stream_status(host, 0, I2EP(i), usb_redir_stall);
         usbredirhost_cancel_stream_unlocked(host, I2EP(i));
     }
 
@@ -1259,6 +1263,9 @@ static int usbredirhost_cancel_pending_urbs(struct usbredirhost *host)
         wait = 1;
     }
     UNLOCK(host);
+
+    if (notify_guest)
+        FLUSH(host);
 
     return wait;
 }
@@ -1568,7 +1575,7 @@ static void usbredirhost_set_configuration(void *priv, uint64_t id,
 
     host->reset = 0;
 
-    usbredirhost_cancel_pending_urbs(host);
+    usbredirhost_cancel_pending_urbs(host, 0);
     usbredirhost_release(host, 0);
 
     r = libusb_set_configuration(host->handle, set_config->configuration);
