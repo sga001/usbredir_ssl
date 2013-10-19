@@ -1953,6 +1953,7 @@ static void usbredirhost_cancel_data_packet(void *priv, uint64_t id)
         }
     }
     UNLOCK(host);
+    FLUSH(host);
 }
 
 static void LIBUSB_CALL usbredirhost_control_packet_complete(
