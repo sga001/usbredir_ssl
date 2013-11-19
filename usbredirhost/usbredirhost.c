@@ -1933,6 +1933,8 @@ static void usbredirhost_cancel_data_packet(void *priv, uint64_t id)
             control_packet.length = 0;
             usbredirparser_send_control_packet(host->parser, t->id,
                                                &control_packet, NULL, 0);
+            DEBUG("cancelled control packet ep %02x id %"PRIu64,
+                  control_packet.endpoint, id);
             break;
         case LIBUSB_TRANSFER_TYPE_BULK:
 #if LIBUSBX_API_VERSION >= 0x01000103
@@ -1944,6 +1946,8 @@ static void usbredirhost_cancel_data_packet(void *priv, uint64_t id)
             bulk_packet.length_high = 0;
             usbredirparser_send_bulk_packet(host->parser, t->id,
                                                &bulk_packet, NULL, 0);
+            DEBUG("cancelled bulk packet ep %02x id %"PRIu64,
+                  bulk_packet.endpoint, id);
             break;
         case LIBUSB_TRANSFER_TYPE_INTERRUPT:
             interrupt_packet = t->interrupt_packet;
@@ -1951,9 +1955,12 @@ static void usbredirhost_cancel_data_packet(void *priv, uint64_t id)
             interrupt_packet.length = 0;
             usbredirparser_send_interrupt_packet(host->parser, t->id,
                                                  &interrupt_packet, NULL, 0);
+            DEBUG("cancelled interrupt packet ep %02x id %"PRIu64,
+                  interrupt_packet.endpoint, id);
             break;
         }
-    }
+    } else
+        DEBUG("cancel packet id %"PRIu64" not found", id);
     UNLOCK(host);
     FLUSH(host);
 }
@@ -1970,8 +1977,9 @@ static void LIBUSB_CALL usbredirhost_control_packet_complete(
                                                   libusb_transfer->status);
     control_packet.length = libusb_transfer->actual_length;
 
-    DEBUG("control complete ep %02X status %d len %d", control_packet.endpoint,
-          control_packet.status, control_packet.length);
+    DEBUG("control complete ep %02X status %d len %d id %"PRIu64,
+          control_packet.endpoint, control_packet.status,
+          control_packet.length, transfer->id);
 
     LOCK(host);
 
@@ -2015,6 +2023,9 @@ static void usbredirhost_control_packet(void *priv, uint64_t id,
     struct usbredirtransfer *transfer;
     unsigned char *buffer;
     int r;
+
+    DEBUG("control submit ep %02X len %d id %"PRIu64, ep,
+          control_packet->length, id);
 
     if (host->disconnected) {
         usbredirhost_send_control_status(host, id, control_packet,
@@ -2108,8 +2119,9 @@ static void LIBUSB_CALL usbredirhost_bulk_packet_complete(
     bulk_packet.length = libusb_transfer->actual_length;
     bulk_packet.length_high = libusb_transfer->actual_length >> 16;
 
-    DEBUG("bulk complete ep %02X status %d len %d", bulk_packet.endpoint,
-          bulk_packet.status, libusb_transfer->actual_length);
+    DEBUG("bulk complete ep %02X status %d len %d id %"PRIu64,
+          bulk_packet.endpoint, bulk_packet.status,
+          libusb_transfer->actual_length, transfer->id);
 
     LOCK(host);
 
@@ -2153,7 +2165,7 @@ static void usbredirhost_bulk_packet(void *priv, uint64_t id,
     struct usbredirtransfer *transfer;
     int r;
 
-    DEBUG("bulk submit ep %02X len %d", ep, len);
+    DEBUG("bulk submit ep %02X len %d id %"PRIu64, ep, len, id);
 
     if (host->disconnected) {
         usbredirhost_send_bulk_status(host, id, bulk_packet,
@@ -2332,9 +2344,9 @@ static void LIBUSB_CALL usbredirhost_interrupt_out_packet_complete(
                                                     libusb_transfer->status);
     interrupt_packet.length = libusb_transfer->actual_length;
 
-    DEBUG("interrupt out complete ep %02X status %d len %d",
+    DEBUG("interrupt out complete ep %02X status %d len %d id %"PRIu64,
           interrupt_packet.endpoint, interrupt_packet.status,
-          interrupt_packet.length);
+          interrupt_packet.length, transfer->id);
 
     LOCK(host);
     if (!transfer->cancelled) {
@@ -2365,7 +2377,8 @@ static void usbredirhost_interrupt_packet(void *priv, uint64_t id,
     struct usbredirtransfer *transfer;
     int r;
 
-    DEBUG("interrupt submit ep %02X len %d", ep, interrupt_packet->length);
+    DEBUG("interrupt submit ep %02X len %d id %"PRIu64, ep,
+          interrupt_packet->length, id);
 
     if (host->disconnected) {
         usbredirhost_send_interrupt_status(host, id, interrupt_packet,
