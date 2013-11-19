@@ -1912,7 +1912,9 @@ static void usbredirhost_cancel_data_packet(void *priv, uint64_t id)
 
     LOCK(host);
     for (t = host->transfers_head.next; t; t = t->next) {
-        if (t->id == id) {
+        /* After cancellation the guest may re-use the id, so skip already
+           cancelled packets */
+        if (!t->cancelled && t->id == id) {
             break;
         }
     }
