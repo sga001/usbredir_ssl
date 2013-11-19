@@ -1972,6 +1972,8 @@ static void LIBUSB_CALL usbredirhost_control_packet_complete(
     struct usbredirtransfer *transfer = libusb_transfer->user_data;
     struct usbredirhost *host = transfer->host;
 
+    LOCK(host);
+
     control_packet = transfer->control_packet;
     control_packet.status = libusb_status_or_error_to_redir_status(host,
                                                   libusb_transfer->status);
@@ -1980,8 +1982,6 @@ static void LIBUSB_CALL usbredirhost_control_packet_complete(
     DEBUG("control complete ep %02X status %d len %d id %"PRIu64,
           control_packet.endpoint, control_packet.status,
           control_packet.length, transfer->id);
-
-    LOCK(host);
 
     if (!transfer->cancelled) {
         if (control_packet.endpoint & LIBUSB_ENDPOINT_IN) {
@@ -2113,6 +2113,8 @@ static void LIBUSB_CALL usbredirhost_bulk_packet_complete(
     struct usbredirtransfer *transfer = libusb_transfer->user_data;
     struct usbredirhost *host = transfer->host;
 
+    LOCK(host);
+
     bulk_packet = transfer->bulk_packet;
     bulk_packet.status = libusb_status_or_error_to_redir_status(host,
                                                   libusb_transfer->status);
@@ -2122,8 +2124,6 @@ static void LIBUSB_CALL usbredirhost_bulk_packet_complete(
     DEBUG("bulk complete ep %02X status %d len %d id %"PRIu64,
           bulk_packet.endpoint, bulk_packet.status,
           libusb_transfer->actual_length, transfer->id);
-
-    LOCK(host);
 
     if (!transfer->cancelled) {
         if (bulk_packet.endpoint & LIBUSB_ENDPOINT_IN) {
@@ -2339,6 +2339,8 @@ static void LIBUSB_CALL usbredirhost_interrupt_out_packet_complete(
     struct usb_redir_interrupt_packet_header interrupt_packet;
     struct usbredirhost *host = transfer->host;
 
+    LOCK(host);
+
     interrupt_packet = transfer->interrupt_packet;
     interrupt_packet.status = libusb_status_or_error_to_redir_status(host,
                                                     libusb_transfer->status);
@@ -2348,7 +2350,6 @@ static void LIBUSB_CALL usbredirhost_interrupt_out_packet_complete(
           interrupt_packet.endpoint, interrupt_packet.status,
           interrupt_packet.length, transfer->id);
 
-    LOCK(host);
     if (!transfer->cancelled) {
         usbredirparser_send_interrupt_packet(host->parser, transfer->id,
                                              &interrupt_packet, NULL, 0);
