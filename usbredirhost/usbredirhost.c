@@ -591,6 +591,16 @@ static void usbredirhost_release(struct usbredirhost *host, int attach_drivers)
 
     host->claimed = 0;
 
+    /* reset the device before re-binding the kernel drivers, so that the
+       kernel drivers get the device in a clean state. */
+    if (!(host->quirks & QUIRK_DO_NOT_RESET)) {
+        r = libusb_reset_device(host->handle);
+        if (r != 0) {
+            ERROR("error resetting device: %s", libusb_error_name(r));
+            return;
+        }
+    }
+
     if (host->config)
         current_config = host->config->bConfigurationValue;
 
