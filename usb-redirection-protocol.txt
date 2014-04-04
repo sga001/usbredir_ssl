@@ -855,7 +855,7 @@ has the following format:
 Values can be either in decimal format, or in hexadecimal format pre-fixed
 with 0x, a value of -1 can be used to allow any value.
 
-All rules of a filter are concatonated, separated by the '|' character
+All rules of a filter are concatenated, separated by the '|' character
 to form a single usredirfilter string:
    <rule1>|<rule2>|<rule3>
 
