@@ -1,5 +1,5 @@
-usbredir-0.7   16 October 2013
-------------------------------
+usbredir-0.7   19 May 2014
+--------------------------
 -usbredirproto:
  -the usb_redir_ep_info_header has been extended with a max_streams field,
   this is only send / received if both sides have usb_redir_cap_bulk_streams
@@ -15,7 +15,10 @@ usbredir-0.7   16 October 2013
   in one usbredirparser_do_read call
 -usbredirhost:
  -use libusb_set_auto_detach_kernel_driver when available
- -add support for bulk streams, this only gets enabled with libusbx >= 1.0.18
+ -add support for bulk streams, this only gets enabled with libusbx >= 1.0.19
+ -stop iso / bulk streams on reset
+ -make cancellation handeling more robust
+ -reset device on release
 -usbredirserver:
  -listen to both ipv4 and ipv6 addresses on ipv6 capable systems
 
