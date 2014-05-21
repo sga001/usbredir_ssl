@@ -1,5 +1,5 @@
 AC_PREREQ(2.63)
-AC_INIT([usbredir], [0.6])
+AC_INIT([usbredir], [0.7])
 AC_CONFIG_SRCDIR([configure.ac])
 
 AM_CONFIG_HEADER([config.h])
