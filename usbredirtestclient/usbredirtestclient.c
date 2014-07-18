@@ -404,6 +404,7 @@ static int usbredirtestclient_cmdline_ctrl(void)
     }
     usbredirparser_send_control_packet(parser, id, &control_packet,
                                        data, data_len);
+    free(data);
     printf("Send control packet with id: %u\n", id);
     id++;
     return 1;
