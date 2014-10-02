@@ -139,6 +139,7 @@ struct usbredirhost_dev_ids {
 
 static const struct usbredirhost_dev_ids usbredirhost_reset_blacklist[] = {
     { 0x1210, 0x001c },
+    { 0x2798, 0x0001 },
     { -1, -1 } /* Terminating Entry */
 };
 
