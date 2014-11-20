@@ -161,7 +161,7 @@ void usbredirparser_init(struct usbredirparser *parser_pub,
 {
     struct usbredirparser_priv *parser =
         (struct usbredirparser_priv *)parser_pub;
-    struct usb_redir_hello_header hello;
+    struct usb_redir_hello_header hello = { { 0 }, };
 
     parser->flags = (flags & ~usbredirparser_fl_no_hello);
     if (parser->callb.alloc_lock_func) {
