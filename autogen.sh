@@ -1,6 +1,11 @@
 #!/bin/sh
 
-autoreconf -fi
-if [ -z "$NOCONFIGURE" ]; then
-    ./configure $@
-fi
+srcdir=`dirname $0`
+test -z "$srcdir" && srcdir=.
+
+(
+    cd "$srcdir"
+    autoreconf -fi
+)
+
+test -n "$NOCONFIGURE" || "$srcdir/configure" "$@"
