@@ -13,3 +13,5 @@ endif
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libusbredirparser-0.5.pc
+
+-include $(top_srcdir)/git.mk
