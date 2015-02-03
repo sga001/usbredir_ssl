@@ -35,6 +35,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <netdb.h>
+#include <netinet/in.h>
 #include "usbredirhost.h"
 
 

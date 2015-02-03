@@ -36,6 +36,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <netdb.h>
+#include <netinet/in.h>
 #include "usbredirparser.h"
 
 /* Macros to go from an endpoint address to an index for our ep array */
