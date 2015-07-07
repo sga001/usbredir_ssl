@@ -88,11 +88,11 @@ char *usbredirfilter_rules_to_string(const struct usbredirfilter_rule *rules,
    Note that under certain circumstances some passes are skipped:
    - For devices with a device class of 0x00 or 0xef, the pass which checks the
      device class is skipped.
-   - If the usbredirfilter_fl_dont_skip_non_boot_hid flag is not passed then
-     for devices with more then 1 interface and an interface with an interface
+   - If the usbredirfilter_fl_dont_skip_non_boot_hid flag is not passed, then
+     for devices with more than 1 interface and an interface with an interface
      class of 0x03, an interface subclass of 0x00 and an interface protocol
-     of 0x00. the check is skipped for that interface. This allows to skip ie
-     checking the interface for volume buttons one some usbaudio class devices.
+     of 0x00, the check is skipped for that interface. This allows to skip ie
+     checking the interface for volume buttons on some usbaudio class devices.
 
    If the result of all (not skipped) passes is allow, then 0 will be returned,
    which indicates that redirection should be allowed.
