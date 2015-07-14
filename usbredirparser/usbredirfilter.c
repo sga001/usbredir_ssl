@@ -172,7 +172,7 @@ int usbredirfilter_check(
     uint16_t vendor_id, uint16_t product_id, uint16_t device_version_bcd,
     int flags)
 {
-    int i, rc;
+    int i, rc, num_skipped=0;
 
     if (usbredirfilter_verify(rules, rules_count))
         return -EINVAL;
@@ -190,14 +190,29 @@ int usbredirfilter_check(
     for (i = 0; i < interface_count; i++) {
         if (!(flags & usbredirfilter_fl_dont_skip_non_boot_hid) &&
                 interface_count > 1 && interface_class[i] == 0x03 &&
-                interface_subclass[i] == 0x00 && interface_protocol[i] == 0x00)
+                interface_subclass[i] == 0x00 && interface_protocol[i] == 0x00) {
+            num_skipped++;
             continue;
-
+        }
         rc = usbredirfilter_check1(rules, rules_count, interface_class[i],
                                    vendor_id, product_id, device_version_bcd,
                                    flags & usbredirfilter_fl_default_allow);
         if (rc)
             return rc;
+    }
+
+    /* If all interfaces were skipped, then force check on that device,
+     * by recursively calling this function with a flag that forbids
+     * skipping (usbredirfilter_fl_dont_skip_non_boot_hid)
+     */
+    if (num_skipped == interface_count) {
+        rc = usbredirfilter_check(rules, rules_count,
+                                  device_class, device_subclass, device_protocol,
+                                  interface_class, interface_subclass,
+                                  interface_protocol, interface_count,
+                                  vendor_id, product_id, device_version_bcd,
+                                  flags | usbredirfilter_fl_dont_skip_non_boot_hid);
+        return rc;
     }
 
     return 0;
