@@ -1682,10 +1682,24 @@ int usbredirparser_unserialize(struct usbredirparser *parser_pub,
     memcpy(orig_caps, parser->our_caps, i);
     if (unserialize_data(parser, &state, &remain, &data, &i, "our_caps"))
         return -1;
-    if (memcmp(parser->our_caps, orig_caps,
-               USB_REDIR_CAPS_SIZE * sizeof(int32_t)) != 0) {
-        ERROR("error unserialize caps mismatch");
-        return -1;
+    for (i =0; i < USB_REDIR_CAPS_SIZE; i++) {
+        if (parser->our_caps[i] != orig_caps[i]) {
+            /* orig_caps is our original settings
+             * parser->our_caps is off the wire.
+             * We want to allow reception from an older
+             * usbredir that doesn't have all our features.
+             */
+            if (parser->our_caps[i] & ~orig_caps[i]) {
+                /* Source has a cap we don't */
+                ERROR("error unserialize caps mismatch ours: %x recv: %x",
+                      orig_caps[i], parser->our_caps[i]);
+                return -1;
+            } else {
+                /* We've got a cap the source doesn't - that's OK */
+                WARNING("unserialize missing some caps; ours: %x recv: %x",
+                      orig_caps[i], parser->our_caps[i]);
+            }
+        }
     }
 
     data = (uint8_t *)parser->peer_caps;
