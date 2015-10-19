@@ -33,6 +33,8 @@ struct usbredirhost;
 
 typedef void (*usbredirhost_flush_writes)(void *priv);
 
+typedef uint64_t (*usbredirhost_buffered_output_size)(void *priv);
+
 /* This function creates an usbredirhost instance, including its embedded
    libusbredirparser instance and sends the initial usb_redir_hello packet to
    the usb-guest.
@@ -113,6 +115,18 @@ void usbredirhost_close(struct usbredirhost *host);
 */
 int usbredirhost_set_device(struct usbredirhost *host,
                             libusb_device_handle *usb_dev_handle);
+
+/* Call this function to set a callback in usbredirhost.
+   The usbredirhost_buffered_output_size callback should return the
+   application's pending writes buffer size (in bytes).
+
+   usbredirhost will set two levels of threshold based in the information
+   provided by the usb device. In case the application's buffer is increasing
+   too much then usbredirhost uses the threshold limits to drop isochronous
+   packages but still send full frames whenever is possible.
+*/
+void usbredirhost_set_buffered_output_size_cb(struct usbredirhost *host,
+    usbredirhost_buffered_output_size buffered_output_size_func);
 
 /* Call this whenever there is data ready for the usbredirhost to read from
    the usb-guest

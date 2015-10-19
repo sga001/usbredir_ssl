@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -109,6 +110,7 @@ struct usbredirhost {
     usbredirparser_read read_func;
     usbredirparser_write write_func;
     usbredirhost_flush_writes flush_writes_func;
+    usbredirhost_buffered_output_size buffered_output_size_func;
     void *func_priv;
     int verbose;
     libusb_context *ctx;
@@ -130,6 +132,11 @@ struct usbredirhost {
     struct usbredirtransfer transfers_head;
     struct usbredirfilter_rule *filter_rules;
     int filter_rules_count;
+    struct {
+        uint64_t higher;
+        uint64_t lower;
+        bool dropping;
+    } iso_threshold;
 };
 
 struct usbredirhost_dev_ids {
@@ -1003,6 +1010,30 @@ static void usbredirhost_send_stream_status(struct usbredirhost *host,
     }
 }
 
+static int usbredirhost_can_write_iso_package(struct usbredirhost *host)
+{
+    uint64_t size;
+
+    if (!host->buffered_output_size_func)
+        return true;
+
+    size = host->buffered_output_size_func(host->func_priv);
+    if (size >= host->iso_threshold.higher) {
+        if (!host->iso_threshold.dropping)
+            DEBUG("START dropping isoc packets %lu buffer > %lu hi threshold",
+                  size, host->iso_threshold.higher);
+        host->iso_threshold.dropping = true;
+    } else if (size < host->iso_threshold.lower) {
+        if (host->iso_threshold.dropping)
+            DEBUG("STOP dropping isoc packets %lu buffer < %lu low threshold",
+                  size, host->iso_threshold.lower);
+
+        host->iso_threshold.dropping = false;
+    }
+
+    return !host->iso_threshold.dropping;
+}
+
 static void usbredirhost_send_stream_data(struct usbredirhost *host,
     uint64_t id, uint8_t ep, uint8_t status, uint8_t *data, int len)
 {
@@ -1028,8 +1059,10 @@ static void usbredirhost_send_stream_data(struct usbredirhost *host,
             .status   = status,
             .length   = len,
         };
-        usbredirparser_send_iso_packet(host->parser, id, &iso_packet,
-                                       data, len);
+
+        if (usbredirhost_can_write_iso_package(host))
+            usbredirparser_send_iso_packet(host->parser, id, &iso_packet,
+                                           data, len);
         break;
     }
     case usb_redir_type_bulk: {
@@ -1120,6 +1153,16 @@ static void usbredirhost_stop_stream(struct usbredirhost *host,
     FLUSH(host);
 }
 
+static void usbredirhost_set_iso_threshold(struct usbredirhost *host,
+    uint8_t pkts_per_transfer, uint8_t transfer_count, uint16_t max_packetsize)
+{
+    uint64_t reference = pkts_per_transfer * transfer_count * max_packetsize;
+    host->iso_threshold.lower = reference / 2;
+    host->iso_threshold.higher = reference * 3;
+    DEBUG("higher threshold is %lu bytes | lower threshold is %lu bytes",
+           host->iso_threshold.higher, host->iso_threshold.lower);
+}
+
 /* Called from both parser read and packet complete callbacks */
 static void usbredirhost_alloc_stream_unlocked(struct usbredirhost *host,
     uint64_t id, uint8_t ep, uint8_t type, uint8_t pkts_per_transfer,
@@ -1178,6 +1221,10 @@ static void usbredirhost_alloc_stream_unlocked(struct usbredirhost *host,
                 host->endpoint[EP2I(ep)].transfer[i], ISO_TIMEOUT);
             libusb_set_iso_packet_lengths(
                 host->endpoint[EP2I(ep)].transfer[i]->transfer, pkt_size);
+
+            usbredirhost_set_iso_threshold(
+                host, pkts_per_transfer,  transfer_count,
+                host->endpoint[EP2I(ep)].max_packetsize);
             break;
         case usb_redir_type_bulk:
             libusb_fill_bulk_transfer(
@@ -1357,6 +1404,17 @@ static void usbredirhost_log_data(struct usbredirhost *host, const char *desc,
 }
 
 /**************************************************************************/
+
+void usbredirhost_set_buffered_output_size_cb(struct usbredirhost *host,
+    usbredirhost_buffered_output_size buffered_output_size_func)
+{
+    if (!host) {
+        ERROR("invalid usbredirhost");
+        return;
+    }
+
+    host->buffered_output_size_func = buffered_output_size_func;
+}
 
 /* Return value:
     0 All ok
