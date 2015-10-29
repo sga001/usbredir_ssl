@@ -46,7 +46,7 @@
 extern "C" {
 #endif
 
-#define USBREDIR_VERSION 0x000700 /* 0.7 [.0] */
+#define USBREDIR_VERSION 0x000701 /* 0.7 [.0] */
 
 enum {
     usb_redir_success,
