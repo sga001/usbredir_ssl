@@ -41,6 +41,23 @@
 
 #define SERVER_VERSION "usbredirserver " PACKAGE_VERSION
 
+#include <stdbool.h>
+#include <openssl/rand.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+
+static SSL_CTX *ssl_ctx = NULL;
+static SSL *ssl_conn = NULL;
+static bool use_ssl = false;
+#define ONERR(C) do { if (C) { return -1; } } while (0)
+#define EVSSL_CA_CERT "./keys/ca_cert.pem"
+#define EVSSL_VERIFY_DEPTH 9
+#define EVSSL_CIPHERS "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES256-SHA:HIGH:!aNULL:!eNULL:!EXP:!LOW:!MEDIUM:!MD5"
+#define EVSSL_SRV_KEY "./keys/server_key.pem"
+#define EVSSL_SRV_CERT "./keys/server_cert.pem"
+#define EVSSL_CLT_NAME "evssl_client"
+#define EVSSL_NAMEBUF_LEN 16
+
 static int verbose = usbredirparser_info;
 static int client_fd, running = 1;
 static libusb_context *ctx;
@@ -49,14 +66,120 @@ static struct usbredirhost *host;
 static const struct option longopts[] = {
     { "port", required_argument, NULL, 'p' },
     { "verbose", required_argument, NULL, 'v' },
+    { "ssl", no_argument, NULL, 's' },
     { "help", no_argument, NULL, 'h' },
     { NULL, 0, NULL, 0 }
 };
+
+static int init_ssl_ctx(void) {
+    SSL_load_error_strings();
+    SSL_library_init();
+
+    ONERR((ssl_ctx = SSL_CTX_new(SSLv23_server_method())) == NULL);
+
+    // ssl general options
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2);
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv3);
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1);
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1_1);
+    SSL_CTX_clear_options(ssl_ctx, SSL_OP_NO_TLSv1_2);
+    ONERR(SSL_CTX_set_cipher_list(ssl_ctx, EVSSL_CIPHERS) != 1);
+
+    // load server certificate
+    ONERR(SSL_CTX_use_certificate_chain_file(ssl_ctx, EVSSL_SRV_CERT) != 1);
+    ONERR(SSL_CTX_use_PrivateKey_file(ssl_ctx, EVSSL_SRV_KEY, SSL_FILETYPE_PEM) != 1);
+    ONERR(SSL_CTX_check_private_key(ssl_ctx) != 1);
+
+    // force client to present certificate
+    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+    SSL_CTX_set_verify_depth(ssl_ctx, EVSSL_VERIFY_DEPTH);
+    ONERR(SSL_CTX_load_verify_locations(ssl_ctx, EVSSL_CA_CERT, NULL) != 1);
+
+    unsigned char sid[SSL_MAX_SSL_SESSION_ID_LENGTH];
+    RAND_bytes(sid, SSL_MAX_SSL_SESSION_ID_LENGTH);
+    ONERR(SSL_CTX_set_session_id_context(ssl_ctx, sid, sizeof(sid)) != 1);
+
+    return 0;
+}
+
+static int setup_ssl_connection(void) {
+    char cname[EVSSL_NAMEBUF_LEN];
+    X509 *cert = NULL;
+    X509_NAME *sname = NULL;
+
+    // accept the connection
+    ONERR((ssl_conn = SSL_new(ssl_ctx)) == NULL);
+    ONERR(SSL_set_rfd(ssl_conn, client_fd) != 1);
+    ONERR(SSL_set_wfd(ssl_conn, client_fd) != 1);
+    ONERR(SSL_accept(ssl_conn) != 1);
+
+    // check the certificate
+    ONERR((cert = SSL_get_peer_certificate(ssl_conn)) == NULL);
+    ONERR((sname = X509_get_subject_name(cert)) == NULL);
+    X509_NAME_get_text_by_NID(sname, NID_commonName, cname, EVSSL_NAMEBUF_LEN);
+    ONERR(strcmp(cname, EVSSL_CLT_NAME) != 0);
+
+    return 0;
+}
 
 static void usbredirserver_log(void *priv, int level, const char *msg)
 {
     if (level <= verbose)
         fprintf(stderr, "%s\n", msg);
+}
+
+static int usbredirserver_ssl_read(void *priv, uint8_t *data, int count) {
+    int r = SSL_read(ssl_conn, data, count);
+    // error reading
+    if (r < 0) {
+        int e = SSL_get_error(ssl_conn, r);
+        if (e == SSL_ERROR_WANT_READ || e == SSL_ERROR_WANT_WRITE || e == SSL_ERROR_NONE) {
+            return 0;
+        } else if (e == SSL_ERROR_ZERO_RETURN) {
+            goto ssl_read_client_hangup;
+        } else {
+            return -1;
+        }
+    }
+
+    // nothing read; probably the other side closed connection
+    if (r == 0 && SSL_get_error(ssl_conn, r) == SSL_ERROR_ZERO_RETURN) {
+ssl_read_client_hangup:
+        SSL_shutdown(ssl_conn);
+        SSL_free(ssl_conn);
+        ssl_conn = NULL;
+        close(client_fd);
+        client_fd = -1;
+    }
+
+    return r;
+}
+
+static int usbredirserver_ssl_write(void *priv, uint8_t *data, int count) {
+    int r = SSL_write(ssl_conn, data, count);
+    // error writing
+    if (r < 0) {
+        int e = SSL_get_error(ssl_conn, r);
+        if (e == SSL_ERROR_WANT_READ || e == SSL_ERROR_WANT_WRITE || e == SSL_ERROR_NONE) {
+            return 0;
+        } else if (e == SSL_ERROR_ZERO_RETURN) {
+            goto ssl_write_client_hangup;
+        } else {
+            return -1;
+        }
+    }
+
+    // nothing written; probably the other side closed the connection
+    if (r == 0 && SSL_get_error(ssl_conn, r) == SSL_ERROR_ZERO_RETURN) {
+ssl_write_client_hangup:
+        SSL_shutdown(ssl_conn);
+        SSL_free(ssl_conn);
+        ssl_conn = NULL;
+        close(client_fd);
+        client_fd = -1;
+    }
+
+    return r;
 }
 
 static int usbredirserver_read(void *priv, uint8_t *data, int count)
@@ -218,6 +341,13 @@ int main(int argc, char *argv[])
                 usage(1, argv[0]);
             }
             break;
+        case 's':
+            use_ssl = true;
+            if (init_ssl_ctx() < 0) {
+                fprintf(stderr, "Error initializing SSL! Aborting.\n");
+                exit(-1);
+            }
+            break;
         case '?':
         case 'h':
             usage(o == '?', argv[0]);
@@ -319,6 +449,12 @@ int main(int argc, char *argv[])
             break;
         }
 
+        // set up ssl connection
+        if (use_ssl && (setup_ssl_connection() < 0)) {
+            fprintf(stderr, "Error setting up SSL connection. Aborting.\n");
+            break;
+        }
+
         /* Try to find the specified usb device */
         if (usbvendor != -1) {
             handle = libusb_open_device_with_vid_pid(ctx, usbvendor,
@@ -357,7 +493,8 @@ int main(int argc, char *argv[])
         }
 
         host = usbredirhost_open(ctx, handle, usbredirserver_log,
-                                 usbredirserver_read, usbredirserver_write,
+                                 use_ssl ? usbredirserver_ssl_read : usbredirserver_read,
+                                 use_ssl ? usbredirserver_ssl_write : usbredirserver_write,
                                  NULL, SERVER_VERSION, verbose, 0);
         if (!host)
             exit(1);
@@ -367,6 +504,10 @@ int main(int argc, char *argv[])
     }
 
     close(server_fd);
+    if (ssl_conn != NULL) {
+        SSL_free(ssl_conn);
+        ssl_conn = NULL;
+    }
     libusb_exit(ctx);
     exit(0);
 }
