@@ -107,11 +107,19 @@ static int setup_ssl_connection(void) {
     X509 *cert = NULL;
     X509_NAME *sname = NULL;
 
-    // accept the connection
+    // set up the SSL connection
     ONERR((ssl_conn = SSL_new(ssl_ctx)) == NULL);
     ONERR(SSL_set_rfd(ssl_conn, client_fd) != 1);
     ONERR(SSL_set_wfd(ssl_conn, client_fd) != 1);
-    ONERR(SSL_accept(ssl_conn) != 1);
+
+    // Accept the SSL connection.
+    // This requires looping because client_fd is non-blocking.
+    int accept_result;
+    int err_result;
+    while ((accept_result = SSL_accept(ssl_conn)) < 0) {
+        err_result = SSL_get_error(ssl_conn, accept_result);
+        ONERR( !(err_result == SSL_ERROR_WANT_READ || err_result == SSL_ERROR_WANT_WRITE) );
+    }
 
     // check the certificate
     ONERR((cert = SSL_get_peer_certificate(ssl_conn)) == NULL);
@@ -216,7 +224,7 @@ static int usbredirserver_write(void *priv, uint8_t *data, int count)
 static void usage(int exit_code, char *argv0)
 {
     fprintf(exit_code? stderr:stdout,
-        "Usage: %s [-p|--port <port>] [-v|--verbose <0-5>] <usbbus-usbaddr|vendorid:prodid>\n",
+        "Usage: %s [-s|--ssl] [-p|--port <port>] [-v|--verbose <0-5>] <usbbus-usbaddr|vendorid:prodid>\n",
         argv0);
     exit(exit_code);
 }
@@ -325,7 +333,7 @@ int main(int argc, char *argv[])
     struct sigaction act;
     libusb_device_handle *handle = NULL;
 
-    while ((o = getopt_long(argc, argv, "hp:v:", longopts, NULL)) != -1) {
+    while ((o = getopt_long(argc, argv, "hsp:v:", longopts, NULL)) != -1) {
         switch (o) {
         case 'p':
             port = strtol(optarg, &endptr, 10);
