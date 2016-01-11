@@ -42,6 +42,7 @@
 #define SERVER_VERSION "usbredirserver " PACKAGE_VERSION
 
 #include <stdbool.h>
+#include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
@@ -118,7 +119,10 @@ static int setup_ssl_connection(void) {
     int err_result;
     while ((accept_result = SSL_accept(ssl_conn)) < 0) {
         err_result = SSL_get_error(ssl_conn, accept_result);
-        ONERR( !(err_result == SSL_ERROR_WANT_READ || err_result == SSL_ERROR_WANT_WRITE) );
+        if (err_result != SSL_ERROR_WANT_READ && err_result != SSL_ERROR_WANT_WRITE) {
+            ERR_print_errors_fp(stderr);
+            ONERR(true);
+        }
     }
 
     // check the certificate
